@@ -1,0 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #FFF8EC;
+  --color-grid: #F1DEBE;
+  --color-text: #1A1A1A;
+  --color-text-muted: #666666;
+  --color-c-red: #FF4D00;
+  --color-c-orange: #FF8A00;
+  --color-c-yellow: #FFC400;
+  --color-c-light: #FFE8B6;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+/* Grid background */
+.grid-bg {
+  position: absolute;
+  inset: 0;
+  background-size: 48px 48px;
+  background-image:
+    linear-gradient(to right, var(--color-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-grid) 1px, transparent 1px);
+  background-position: 50% 0;
+  pointer-events: none;
+  animation: gridPulse 6s ease-in-out infinite;
+}
+
+@keyframes gridPulse {
+  0%   { opacity: 1; }
+  50%  { opacity: 0.55; }
+  100% { opacity: 1; }
+}
+
+/* Composition grid — smaller cells */
+.composition {
+  width: calc(14 * 48px);
+  height: calc(5 * 48px);
+  display: grid;
+  grid-template-columns: repeat(14, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+}
+
+/* Input */
+.input-field {
+  caret-color: var(--color-c-red);
+}
+.input-field::placeholder {
+  color: #A0A0A0;
+}
+
+/* Card focus glow */
+.card:focus-within {
+  box-shadow: 0 32px 64px rgba(0,0,0,0.08), 0 0 0 2px rgba(255,77,0,0.12);
+}
+
+/* Active dot pulse */
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.5; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Responsive */
+@media (max-width: 960px) {
+  .composition { transform: scale(0.8); transform-origin: top center; }
+}
+@media (max-width: 768px) {
+  .composition { transform: scale(0.5); transform-origin: top center; }
+}
