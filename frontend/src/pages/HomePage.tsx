@@ -1,3 +1,5 @@
+import { useState } from "react"
+import { useNavigate } from "react-router"
 import { motion } from "framer-motion"
 
 const fadeUp = {
@@ -18,12 +20,8 @@ const blockEntrance = {
   }),
 }
 
-type BlockProps = {
-  color: string
-  col: number
-  row: number
-  delay: number
-}
+type BlockProps = { color: string; col: number; row: number; delay: number }
+
 function Block({ color, col, row, delay }: BlockProps) {
   return (
     <motion.div
@@ -38,29 +36,32 @@ function Block({ color, col, row, delay }: BlockProps) {
     />
   )
 }
-
 export default function HomePage() {
+  const [prompt, setPrompt] = useState("")
+  const navigate = useNavigate()
+
+  const handleSubmit = () => {
+    if (!prompt.trim()) return
+    const id = `DSP-${Math.floor(1000 + Math.random() * 9000)}`
+    navigate(`/task/${id}`, { state: { prompt: prompt.trim(), repo: "dispatch/core-agent" } })
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit()
+    }
+  }
+
   return (
     <div className="relative min-h-screen flex flex-col overflow-x-hidden">
       <div className="grid-bg z-0" />
-
       <main className="flex-1 flex flex-col items-center pt-[12vh] relative z-10">
-        <motion.div
-          className="text-center mb-16 max-w-[800px] px-6"
-          initial="hidden"
-          animate="visible"
-        >
-          <motion.h1
-            className="text-[56px] font-medium tracking-[-0.04em] leading-[1.1] mb-5 text-text"
-            variants={fadeUp}
-            custom={0.05}
-          >
+        <motion.div className="text-center mb-16 max-w-[800px] px-6" initial="hidden" animate="visible">
+          <motion.h1 className="text-[56px] font-medium tracking-[-0.04em] leading-[1.1] mb-5 text-text" variants={fadeUp} custom={0.05}>
             The async cloud coding agent.
-          </motion.h1>          <motion.p
-            className="text-lg font-normal text-text-muted tracking-[-0.01em]"
-            variants={fadeUp}
-            custom={0.15}
-          >
+          </motion.h1>
+          <motion.p className="text-lg font-normal text-text-muted tracking-[-0.01em]" variants={fadeUp} custom={0.15}>
             Describe your architecture. Dispatch handles the implementation, testing, and PR.
           </motion.p>
         </motion.div>
@@ -94,6 +95,9 @@ export default function HomePage() {
             <textarea
               className="input-field w-full border-none bg-transparent font-[inherit] text-xl font-normal leading-[1.4] tracking-[-0.01em] text-text resize-none outline-none h-full"
               placeholder="What should we build today?"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={handleKeyDown}
             />
             <div className="flex justify-between items-end mt-4">
               <button className="inline-flex items-center gap-2 py-1.5 px-3 rounded-md text-sm font-medium text-[#444] bg-transparent border border-transparent cursor-pointer -ml-3 transition-all duration-200 hover:bg-[#F5F5F5] hover:text-text hover:-translate-y-px">
@@ -106,7 +110,11 @@ export default function HomePage() {
                   <polyline points="6 9 12 15 18 9" />
                 </svg>
               </button>
-              <button className="w-10 h-10 bg-text border-none rounded-lg flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-[1.12] hover:shadow-[0_6px_20px_rgba(0,0,0,0.18)] active:scale-[0.96]" aria-label="Submit task">
+              <button
+                onClick={handleSubmit}
+                className="w-10 h-10 bg-text border-none rounded-lg flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-[1.12] hover:shadow-[0_6px_20px_rgba(0,0,0,0.18)] active:scale-[0.96]"
+                aria-label="Submit task"
+              >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="12" y1="19" x2="12" y2="5" /><polyline points="5 12 12 5 19 12" />
                 </svg>
