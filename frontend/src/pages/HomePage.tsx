@@ -40,10 +40,21 @@ export default function HomePage() {
   const [prompt, setPrompt] = useState("")
   const navigate = useNavigate()
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!prompt.trim()) return
-    const id = `DSP-${Math.floor(1000 + Math.random() * 9000)}`
-    navigate(`/task/${id}`, { state: { prompt: prompt.trim(), repo: "dispatch/core-agent" } })
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: prompt.trim(), repo: "dispatch/core-agent" }),
+      })
+      const data = await res.json()
+      navigate(`/task/${data.id}`)
+    } catch {
+      // Fallback for when backend is down
+      const id = `DSP-${Math.floor(1000 + Math.random() * 9000)}`
+      navigate(`/task/${id}`, { state: { prompt: prompt.trim(), repo: "dispatch/core-agent", offline: true } })
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
