@@ -7,9 +7,14 @@ const fadeUp = {
   visible: (d: number) => ({ opacity: 1, y: 0, transition: { duration: 0.5, delay: d, ease: [0.16, 1, 0.3, 1] } }),
 }
 const panelFade = {
-  hidden: { opacity: 0, y: 8 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] } },
-  exit: { opacity: 0, y: -8, transition: { duration: 0.2 } },
+  initial: { opacity: 0, scale: 0.985, filter: "blur(4px)" },
+  animate: { opacity: 1, scale: 1, filter: "blur(0px)", transition: { duration: 0.4, ease: [0.16, 1, 0.3, 1] } },
+  exit: { opacity: 0, scale: 0.985, filter: "blur(4px)", transition: { duration: 0.25 } },
+}
+const contentFade = {
+  initial: { opacity: 0, y: 6 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.16, 1, 0.3, 1] } },
+  exit: { opacity: 0, transition: { duration: 0.15 } },
 }
 
 type StepStatus = "wait" | "active" | "done" | "failed"
@@ -281,7 +286,7 @@ export default function TaskView() {
   // Auto-select active step
   const autoSelect = useCallback((stepsArr: Step[]) => {
     const active = stepsArr.find(s => s.status === "active")
-    if (active) setSelectedStep(active.id)
+    if (active) requestAnimationFrame(() => setSelectedStep(active.id))
   }, [])
   // SSE connection
   useEffect(() => {
@@ -345,13 +350,37 @@ export default function TaskView() {
 
   function renderPanel() {
     if (!currentStep) return null
-    if (currentStep.status === "wait") return <WaitingPanel />
-    if (currentStep.status === "active") return <LoadingPanel label={currentStep.label} />
-    // Done — show data panel
-    if (allDone && selectedStep === steps[steps.length - 1]?.id) return <CompletedPanel />
-    const Panel = panelMap[selectedStep]
-    if (Panel && currentData) return <Panel data={currentData} />
-    return <LoadingPanel label={currentStep.label} />
+
+    let panelKey: string
+    let content: React.ReactNode
+
+    if (currentStep.status === "wait") {
+      panelKey = "wait"
+      content = <WaitingPanel />
+    } else if (currentStep.status === "active" || !currentData) {
+      panelKey = "loading"
+      content = <LoadingPanel label={currentStep.label} />
+    } else if (allDone && selectedStep === steps[steps.length - 1]?.id) {
+      panelKey = "completed"
+      content = <CompletedPanel />
+    } else {
+      const Panel = panelMap[selectedStep]
+      panelKey = "data"
+      content = Panel ? <Panel data={currentData} /> : <LoadingPanel label={currentStep.label} />
+    }
+
+    return (
+      <AnimatePresence mode="popLayout">
+        <motion.div
+          key={panelKey}
+          variants={contentFade}
+          initial="initial" animate="animate" exit="exit"
+          className="h-full"
+        >
+          {content}
+        </motion.div>
+      </AnimatePresence>
+    )
   }
 
   return (
@@ -419,12 +448,12 @@ export default function TaskView() {
             </div>
           </motion.div>
 
-          <div className="flex-1 min-h-0">
-            <AnimatePresence mode="wait">
+          <div className="flex-1 min-h-0 relative">
+            <AnimatePresence mode="popLayout">
               <motion.div
-                key={selectedStep + (currentStep?.status || "")}
+                key={selectedStep}
                 variants={panelFade}
-                initial="hidden" animate="visible" exit="exit"
+                initial="initial" animate="animate" exit="exit"
                 className="h-full"
               >
                 {renderPanel()}
