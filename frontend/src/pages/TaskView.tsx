@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useParams } from "react-router"
 import { motion, AnimatePresence } from "framer-motion"
 
@@ -6,15 +6,10 @@ const fadeUp = {
   hidden: { opacity: 0, y: 16 },
   visible: (d: number) => ({ opacity: 1, y: 0, transition: { duration: 0.5, delay: d, ease: [0.16, 1, 0.3, 1] } }),
 }
-const panelFade = {
-  initial: { opacity: 0, scale: 0.985, filter: "blur(4px)" },
-  animate: { opacity: 1, scale: 1, filter: "blur(0px)", transition: { duration: 0.4, ease: [0.16, 1, 0.3, 1] } },
-  exit: { opacity: 0, scale: 0.985, filter: "blur(4px)", transition: { duration: 0.25 } },
-}
-const contentFade = {
-  initial: { opacity: 0, y: 6 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.16, 1, 0.3, 1] } },
-  exit: { opacity: 0, transition: { duration: 0.15 } },
+
+const streamIn = {
+  initial: { opacity: 0, y: 12 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.16, 1, 0.3, 1] } },
 }
 
 type StepStatus = "wait" | "active" | "done" | "failed"
@@ -27,253 +22,272 @@ function StatusDot({ status }: { status: StepStatus }) {
   if (status === "failed") return <div className="w-2 h-2 rounded-full mt-[5px] shrink-0 bg-[#EF4444]" />
   return <div className="w-2 h-2 rounded-full mt-[5px] shrink-0 bg-[#DDD]" />
 }
-
-const FileIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-50">
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
-  </svg>
-)
-
-function PanelShell({ title, icon, meta, children }: { title: string; icon: React.ReactNode; meta?: React.ReactNode; children: React.ReactNode }) {
+/* ─── Phase divider ─── */
+function PhaseHeader({ label, status }: { label: string; status: StepStatus }) {
   return (
-    <div className="bg-white border border-[#E8D5B5] rounded-lg flex flex-col overflow-hidden h-full">
-      <div className="px-5 py-3 border-b border-[#F0E8D8] flex justify-between items-center">
-        <div className="text-[13px] font-medium flex items-center gap-2 text-text-muted">{icon}{title}</div>
-        {meta && <div className="text-xs text-text-muted">{meta}</div>}
-      </div>
-      <div className="flex-1 overflow-auto p-5">{children}</div>
-    </div>
-  )
-}
-/* ─── Loading / Waiting ─── */
-function LoadingPanel({ label }: { label: string }) {
-  return (
-    <PanelShell title={label} icon={<div className="w-3 h-3 rounded-full bg-c-orange animate-[pulse_1.5s_infinite]" />}>
-      <div className="space-y-4 animate-pulse">
-        <div className="h-3 bg-[#F0E8D8] rounded w-3/4" />
-        <div className="h-3 bg-[#F0E8D8] rounded w-1/2" />
-        <div className="h-3 bg-[#F0E8D8] rounded w-5/6" />
-        <div className="h-3 bg-[#F0E8D8] rounded w-2/3" />
-      </div>
-    </PanelShell>
-  )
-}
-
-function WaitingPanel() {
-  return (
-    <div className="bg-white border border-[#E8D5B5] rounded-lg flex items-center justify-center h-full">
-      <div className="text-sm text-text-muted">Waiting for previous steps to complete...</div>
+    <div className="flex items-center gap-3 py-3">
+      <div className={`w-1.5 h-1.5 rounded-full ${status === "done" ? "bg-[#22C55E]" : status === "active" ? "bg-c-orange animate-[pulse_1.5s_infinite]" : "bg-[#DDD]"}`} />
+      <span className="font-mono text-[11px] uppercase tracking-[0.05em] text-text-muted">
+        {label}
+      </span>
+      <div className="flex-1 h-px bg-[#F0E8D8]" />
     </div>
   )
 }
 
-/* ─── Data-driven panels ─── */
-function ClonePanel({ data }: { data: Record<string, unknown> }) {
+/* ─── Section: Clone — metrics grid ─── */
+function CloneSection({ data }: { data: Record<string, unknown> }) {
   return (
-    <PanelShell title={`Clone — ${data.repo}`} icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-50"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" /></svg>}>
-      <div className="space-y-6">
-        <div className="grid grid-cols-3 gap-8">
-          {[{ label: "Repository", value: String(data.repo) }, { label: "Branch", value: String(data.branch) }, { label: "Commit", value: String(data.commit) }].map((item) => (
-            <div key={item.label}>
-              <div className="text-[11px] text-text-muted uppercase tracking-wider mb-1.5">{item.label}</div>
-              <div className="text-sm font-mono">{item.value}</div>
-            </div>
-          ))}
+    <div className="grid grid-cols-2 border border-[#F0E8D8] rounded">
+      {[
+        { label: "Repository", value: String(data.repo) },
+        { label: "Target Branch", value: String(data.branch) },
+        { label: "Base Commit", value: String(data.commit) },
+        { label: "Files Indexed", value: String(data.files) },
+      ].map((m, i) => (
+        <div
+          key={m.label}
+          className={`p-4 ${i < 2 ? "border-b border-[#F0E8D8]" : ""} ${i % 2 === 0 ? "border-r border-[#F0E8D8]" : ""}`}
+        >
+          <div className="text-[10px] uppercase text-text-muted tracking-[0.05em] mb-1">{m.label}</div>
+          <div className="text-sm font-mono">{m.value}</div>
         </div>
-        <div>
-          <div className="flex justify-between mb-3">
-            <span className="text-sm">Clone Progress</span>
-            <span className="text-xs text-[#22C55E] font-medium">Complete</span>
-          </div>
-          <div className="w-full h-1.5 bg-[#F0E8D8] rounded-full overflow-hidden">
-            <div className="h-full bg-[#22C55E] rounded-full w-full" />
-          </div>
-          <div className="flex justify-between mt-3 text-xs text-text-muted">
-            <span>{String(data.files)} files • {String(data.directories)} directories</span>
-            <span>{String(data.size_mb)} MB in {String(data.time_s)}s</span>
-          </div>
-        </div>
-      </div>
-    </PanelShell>
+      ))}
+    </div>
   )
 }
-function AgentsPanel({ data }: { data: Record<string, unknown> }) {
+/* ─── Section: AGENTS.md — doc block ─── */
+function AgentsSection({ data }: { data: Record<string, unknown> }) {
   const sections = (data.sections as string[]) || []
   const content: Record<string, string[]> = {
     "Project Context": ["Multi-tenant SaaS platform built with Next.js 14, TypeScript, and Prisma ORM."],
-    "Coding Standards": ["- Strict TypeScript, no `any` types", "- Functional components with hooks", "- Zod schemas for all API inputs", "- Minimum 80% test coverage"],
-    "Architecture": ["- Auth: src/middleware.ts + src/lib/auth/", "- API routes: src/app/api/", "- Database: Prisma with PostgreSQL"],
-    "Testing": ["- Vitest for unit tests, Playwright for e2e", "- Run: `npm run test`"],
+    "Coding Standards": ["strict_typescript: true", "components: functional_with_hooks", "validation: zod_schemas", "coverage_min: 80%"],
+    "Architecture": ["auth: src/middleware.ts + src/lib/auth/", "routes: src/app/api/", "database: Prisma + PostgreSQL"],
+    "Testing": ["unit: vitest", "e2e: playwright", "run: npm run test"],
   }
   return (
-    <PanelShell title={String(data.path || "AGENTS.md")} icon={<FileIcon />} meta="Project root">
-      <div className="font-mono text-[13px] leading-[1.8] space-y-5">
+    <div className="bg-[#FAF8F5] border-l-[3px] border-c-orange rounded-r p-4">
+      <div className="flex items-center gap-2 mb-3 text-xs text-text-muted">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-60">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+        </svg>
+        {String(data.path || "AGENTS.md")}
+      </div>
+      <div className="font-mono text-[13px] leading-[1.6] space-y-1">
         {sections.map((s) => (
           <div key={s}>
-            <div className="text-c-orange font-medium mb-1"># {s}</div>
-            {(content[s] || []).map((l, i) => <div key={i} className="text-text-muted">{l}</div>)}
+            <div className="text-text-muted">{s.toLowerCase().replace(/ /g, "_")}:</div>
+            {(content[s] || []).map((l, i) => (
+              <div key={i} className="pl-4">
+                {l.includes(":") ? (
+                  <>
+                    <span className="text-text-muted">{l.split(":")[0]}:</span>
+                    <span className="text-[#0284C7]"> {l.split(":").slice(1).join(":")}</span>
+                  </>
+                ) : (
+                  <span className="text-[#0284C7]">- "{l}"</span>
+                )}
+              </div>
+            ))}
           </div>
         ))}
       </div>
-    </PanelShell>
+    </div>
   )
 }
-
-function AnalyzePanel({ data }: { data: Record<string, unknown> }) {
+/* ─── Section: Analyze — data table ─── */
+function AnalyzeSection({ data }: { data: Record<string, unknown> }) {
   const affected = (data.affected as Array<{ name: string; deps: number; impact: string }>) || []
   return (
-    <PanelShell title="Architecture Analysis" icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-50"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>} meta={`${data.files_scanned} files scanned`}>
-      <div className="space-y-6">
-        <div className="grid grid-cols-4 gap-6">
-          {[{ l: "Files Scanned", v: data.files_scanned }, { l: "Modules", v: data.modules }, { l: "Affected Files", v: data.affected_files }, { l: "Risk Level", v: data.risk_level }].map((s) => (
-            <div key={s.l}><div className="text-2xl font-medium tracking-tight">{String(s.v)}</div><div className="text-[11px] text-text-muted mt-1">{s.l}</div></div>
-          ))}
-        </div>
-        <div>
-          <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted mb-3">Affected Files</div>
-          {affected.map((m) => (
-            <div key={m.name} className="flex items-center justify-between py-2.5 text-[13px]">
-              <div className="flex items-center gap-2 font-mono"><FileIcon />{m.name}</div>
-              <div className="flex items-center gap-4">
-                <span className="text-xs text-text-muted">{m.deps} deps</span>
-                <span className={`text-[11px] font-medium ${m.impact === "high" ? "text-[#D4380D]" : m.impact === "medium" ? "text-c-orange" : "text-text-muted"}`}>{m.impact}</span>
-              </div>
-            </div>
-          ))}
-        </div>
+    <div>
+      <div className="grid grid-cols-[1fr_80px_80px] font-mono text-[10px] uppercase text-text-muted tracking-[0.05em] border-b border-[#F0E8D8] pb-2 mb-2">
+        <div>Target File</div>
+        <div className="text-right">Deps</div>
+        <div className="text-right">Risk</div>
       </div>
-    </PanelShell>
+      {affected.map((m) => (
+        <div key={m.name} className="grid grid-cols-[1fr_80px_80px] items-center py-2 border-b border-dashed border-[#F0E8D8] last:border-b-0 text-xs">
+          <div className="font-mono">{m.name}</div>
+          <div className="text-right font-mono text-text-muted">{m.deps}</div>
+          <div className="text-right">
+            <span className={`inline-block px-1.5 py-px rounded text-[10px] font-medium border ${
+              m.impact === "high" ? "bg-[#FFEBEB] text-[#DC2626] border-[#FCA5A5]" :
+              m.impact === "medium" ? "bg-[#FFF8E1] text-[#D97706] border-[#FDE68A]" :
+              "bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]"
+            }`}>
+              {m.impact.toUpperCase()}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
-function PlanPanel({ data }: { data: Record<string, unknown> }) {
+
+/* ─── Section: Plan — numbered steps ─── */
+function PlanSection({ data }: { data: Record<string, unknown> }) {
   const planSteps = (data.steps as Array<{ num: number; title: string; file: string; description: string }>) || []
   return (
-    <PanelShell title="Execution Plan" icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-50"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>} meta={data.approved ? <span className="text-[#22C55E]">✓ Approved</span> : undefined}>
-      <div className="space-y-5">
-        {planSteps.map((s) => (
-          <div key={s.num} className="flex items-start gap-4">
-            <div className="w-6 h-6 rounded-full bg-[#22C55E] text-white text-xs font-medium flex items-center justify-center shrink-0 mt-0.5">{s.num}</div>
-            <div>
-              <div className="font-medium text-sm">{s.title}</div>
-              <div className="font-mono text-xs text-text-muted mt-0.5 mb-1.5">{s.file}</div>
-              <div className="text-[13px] text-text-muted leading-relaxed">{s.description}</div>
-            </div>
+    <div>
+      {planSteps.map((s, i) => (
+        <div key={s.num} className={`flex gap-4 ${i < planSteps.length - 1 ? "pb-4 mb-4 border-b border-[#F0E8D8]" : ""}`}>
+          <div className="font-mono text-lg text-c-orange font-light leading-none mt-0.5">
+            {String(s.num).padStart(2, "0")}
           </div>
-        ))}
-      </div>
-    </PanelShell>
-  )
-}
-
-function IndexPanel({ data }: { data: Record<string, unknown> }) {
-  const modules = (data.modules as Array<{ module: string; files: number; symbols: number }>) || []
-  return (
-    <PanelShell title="Repository Index" icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-50"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>} meta={`${data.total_symbols} symbols indexed`}>
-      <div>
-        <div className="grid grid-cols-[1fr_80px_80px] gap-2 pb-3 mb-1 text-[11px] font-medium uppercase tracking-wider text-text-muted border-b border-[#F0E8D8]">
-          <span>Module</span><span className="text-right">Files</span><span className="text-right">Symbols</span>
-        </div>
-        {modules.map((m) => (
-          <div key={m.module} className="grid grid-cols-[1fr_80px_80px] gap-2 py-2.5 text-[13px]">
-            <span className="font-mono">{m.module}/</span>
-            <span className="text-right text-text-muted">{m.files}</span>
-            <span className="text-right text-text-muted">{m.symbols}</span>
-          </div>
-        ))}
-      </div>
-    </PanelShell>
-  )
-}
-function RefactorPanel({ data }: { data: Record<string, unknown> }) {
-  const diff = (data.diff as Array<{ num: number; content: string; type?: string }>) || []
-  return (
-    <div className="flex flex-col gap-4 h-full">
-      <PanelShell title={String(data.file || "Changes")} icon={<FileIcon />} meta={<><span className="text-[#22C55E]">+{String(data.added)}</span>{" "}<span className="text-[#EF4444]">-{String(data.removed)}</span></>}>
-        <div className="font-mono text-[13px] leading-[1.7] -m-5 p-5">
-          {diff.map((line, i) => (
-            <div key={i} className="flex gap-4 mb-px">
-              <span className="w-[30px] text-right text-[#CCC] select-none shrink-0">{line.num}</span>
-              <span className={`w-full ${line.type === "added" ? "text-[#1D6E2F] bg-[#E6FFEC]" : line.type === "removed" ? "text-[#9E1D23] bg-[#FFEBE9]" : ""}`}>
-                {line.type === "added" && "+ "}{line.type === "removed" && "- "}{line.content}
+          <div>
+            <div className="text-sm leading-[1.4] mb-2">{s.description}</div>
+            <div className="flex gap-2 flex-wrap">
+              <span className="font-mono text-[11px] bg-[#FAF8F5] border border-[#F0E8D8] px-2 py-0.5 rounded-full text-text-muted">
+                {s.file}
               </span>
             </div>
-          ))}
+          </div>
         </div>
-      </PanelShell>
-      <div className="bg-[#1A1A1A] rounded-lg p-4 font-mono text-xs text-[#AAA] h-[180px] overflow-y-auto">
-        <div className="mb-1"><span className="text-c-yellow mr-2">$</span><span className="text-[#DDD]">dispatch exec --file {String(data.file)}</span></div>
-        <div className="mb-1">Applying changes...</div>
-        <div className="mb-1"><span className="text-c-yellow mr-2">$</span><span className="text-[#DDD]">npm run lint</span></div>
-        <div className="mb-1">Linting... <span className="text-[#22C55E]">0 errors</span></div>
-      </div>
+      ))}
     </div>
   )
 }
-
-function TestPanel({ data }: { data: Record<string, unknown> }) {
-  const tests = (data.tests as Array<{ name: string; time: string }>) || []
+/* ─── Section: Index — module grid with visual bars ─── */
+function IndexSection({ data }: { data: Record<string, unknown> }) {
+  const modules = (data.modules as Array<{ module: string; files: number; symbols: number }>) || []
+  const maxSymbols = Math.max(...modules.map(m => m.symbols), 1)
   return (
-    <PanelShell title="Test Results" icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-50"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>} meta={<><span className="text-[#22C55E]">{String(data.passed)} passed</span><span className="text-text-muted ml-1.5">• {String(data.failed)} failed</span></>}>
-      <div className="space-y-0.5">
-        {tests.map((t, i) => (
-          <div key={i} className="flex items-center justify-between py-2 text-[13px]">
-            <div className="flex items-center gap-2.5">
-              <span className="text-[#22C55E] text-xs">✓</span>
-              <span className="font-mono">{t.name}</span>
+    <div className="grid grid-cols-2 gap-3">
+      {modules.map((m) => {
+        const ratio = m.symbols / maxSymbols
+        const filled = Math.round(ratio * 4)
+        return (
+          <div key={m.module} className="border border-[#F0E8D8] rounded p-3">
+            <div className="flex justify-between mb-3">
+              <span className="text-[13px] font-medium">{m.module}/</span>
+              <span className="font-mono text-[11px] text-text-muted">{m.files} files</span>
             </div>
-            <span className="text-xs text-text-muted font-mono">{t.time}</span>
+            <div className="flex gap-0.5">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`h-1.5 flex-1 rounded-sm ${
+                    i < filled ? (i === 0 ? "bg-c-orange" : "bg-c-yellow") : "bg-[#F0E8D8]"
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+/* ─── Section: Refactor — dark terminal panel ─── */
+function RefactorSection({ data }: { data: Record<string, unknown> }) {
+  const diff = (data.diff as Array<{ num: number; content: string; type?: string }>) || []
+  return (
+    <div className="bg-[#111] rounded-md overflow-hidden text-[#E5E5E5] -mx-1">
+      <div className="flex bg-[#1A1A1A] border-b border-[#333] px-4">
+        <div className="py-2.5 px-4 text-xs font-mono text-c-orange border-b-2 border-c-orange">
+          {String(data.file)}
+        </div>
+      </div>
+      <div className="p-4 font-mono text-[13px] leading-[1.6] overflow-x-auto">
+        {diff.map((line, i) => (
+          <div
+            key={i}
+            className={`flex gap-4 ${
+              line.type === "added" ? "text-[#4ADE80] bg-[rgba(74,222,128,0.1)]" :
+              line.type === "removed" ? "text-[#F87171] bg-[rgba(248,113,113,0.1)]" :
+              "text-[#666]"
+            }`}
+          >
+            <span>{line.type === "added" ? "+" : line.type === "removed" ? "-" : " "}</span>
+            <span>{line.content || "\u00A0"}</span>
           </div>
         ))}
       </div>
-    </PanelShell>
-  )
-}
-function PRPanel({ data }: { data: Record<string, unknown> }) {
-  const files = (data.changed_files as Array<{ name: string; added: number; removed: number }>) || []
-  return (
-    <PanelShell title="Pull Request Preview" icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-50"><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><line x1="6" y1="9" x2="6" y2="21" /></svg>} meta={`${data.branch} → ${data.target}`}>
-      <div className="space-y-6">
-        <div>
-          <div className="text-[11px] text-text-muted uppercase tracking-wider mb-1.5">Title</div>
-          <div className="font-medium">{String(data.title)}</div>
-        </div>
-        <div>
-          <div className="text-[11px] text-text-muted uppercase tracking-wider mb-1.5">Description</div>
-          <div className="text-[13px] text-text-muted leading-relaxed">{String(data.description)}</div>
-        </div>
-        <div>
-          <div className="text-[11px] text-text-muted uppercase tracking-wider mb-3">Changed Files</div>
-          {files.map((f) => (
-            <div key={f.name} className="flex items-center justify-between py-2 text-[13px]">
-              <div className="flex items-center gap-2 font-mono"><FileIcon />{f.name}</div>
-              <div className="text-xs font-mono"><span className="text-[#22C55E]">+{f.added}</span>{" "}<span className="text-[#EF4444]">-{f.removed}</span></div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </PanelShell>
-  )
-}
-
-function CompletedPanel() {
-  return (
-    <div className="bg-white border border-[#E8D5B5] rounded-lg flex items-center justify-center h-full">
-      <div className="text-center">
-        <div className="text-[#22C55E] text-3xl mb-3">✓</div>
-        <div className="text-lg font-medium mb-1">Task Complete</div>
-        <div className="text-sm text-text-muted">All steps finished. Pull request is ready for review.</div>
+      <div className="px-4 py-3 bg-black border-t border-[#333] font-mono text-xs">
+        <span className="text-c-orange">{">"}</span>
+        <span className="ml-2">dispatch apply --strict</span>
+        <span className="text-[#4ADE80] ml-2">Changes applied.</span>
       </div>
     </div>
   )
 }
 
-/* ─── Panel map ─── */
-const panelMap: Record<string, React.FC<{ data: Record<string, unknown> }>> = {
-  clone: ClonePanel, agents: AgentsPanel, analyze: AnalyzePanel,
-  plan: PlanPanel, index: IndexPanel, refactor: RefactorPanel,
-  test: TestPanel, pr: PRPanel,
+/* ─── Section: Test — test list ─── */
+function TestSection({ data }: { data: Record<string, unknown> }) {
+  const tests = (data.tests as Array<{ name: string; time: string }>) || []
+  return (
+    <div className="border border-[#F0E8D8] rounded">
+      {tests.map((t, i) => (
+        <div
+          key={i}
+          className={`flex justify-between items-center px-4 py-3 text-[13px] ${
+            i < tests.length - 1 ? "border-b border-[#F0E8D8]" : ""
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-c-orange text-sm font-bold">✓</span>
+            <span className="font-mono">{t.name}</span>
+          </div>
+          <span className="font-mono text-[11px] text-text-muted">{t.time}</span>
+        </div>
+      ))}
+    </div>
+  )
 }
+/* ─── Section: PR — summary ─── */
+function PRSection({ data }: { data: Record<string, unknown> }) {
+  const files = (data.changed_files as Array<{ name: string; added: number; removed: number }>) || []
+  const totalAdded = files.reduce((s, f) => s + f.added, 0)
+  const totalRemoved = files.reduce((s, f) => s + f.removed, 0)
+  return (
+    <div>
+      <div className="font-mono text-[10px] text-c-orange uppercase tracking-wider mb-2">Ready for Review</div>
+      <h2 className="text-xl font-medium tracking-[-0.02em] mb-2">{String(data.title)}</h2>
+      <p className="text-sm text-text-muted leading-[1.5] mb-6">{String(data.description)}</p>
+      <div className="flex gap-6 pt-4 border-t border-[#F0E8D8] font-mono">
+        <div>
+          <div className="text-lg font-medium text-[#4ADE80]">+{totalAdded}</div>
+          <div className="text-[11px] uppercase text-text-muted">Additions</div>
+        </div>
+        <div>
+          <div className="text-lg font-medium text-[#F87171]">-{totalRemoved}</div>
+          <div className="text-[11px] uppercase text-text-muted">Deletions</div>
+        </div>
+        <div>
+          <div className="text-lg font-medium">{files.length}</div>
+          <div className="text-[11px] uppercase text-text-muted">Files</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─── Active loading indicator ─── */
+function ActiveLoader() {
+  return (
+    <div className="flex items-center gap-3 py-4">
+      <div className="grid grid-cols-3 grid-rows-3 gap-px">
+        {Array.from({ length: 9 }).map((_, i) => (
+          <motion.div
+            key={i}
+            className="w-[6px] h-[6px] rounded-sm bg-[#F0E8D8]"
+            animate={{ backgroundColor: ["#F0E8D8", "#FF5500", "#F0E8D8"] }}
+            transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.1, ease: "easeInOut" }}
+          />
+        ))}
+      </div>
+      <span className="font-mono text-xs text-text-muted">Processing...</span>
+    </div>
+  )
+}
+/* ─── Section renderer ─── */
+const sectionMap: Record<string, React.FC<{ data: Record<string, unknown> }>> = {
+  clone: CloneSection, agents: AgentsSection, analyze: AnalyzeSection,
+  plan: PlanSection, index: IndexSection, refactor: RefactorSection,
+  test: TestSection, pr: PRSection,
+}
+
 export default function TaskView() {
   const { id } = useParams()
   const [meta, setMeta] = useState<TaskMeta>({ id: id || "", prompt: "", repo: "", branch: "" })
@@ -283,11 +297,28 @@ export default function TaskView() {
   const [allDone, setAllDone] = useState(false)
   const [connected, setConnected] = useState(false)
 
-  // Auto-select active step
-  const autoSelect = useCallback((stepsArr: Step[]) => {
-    const active = stepsArr.find(s => s.status === "active")
-    if (active) requestAnimationFrame(() => setSelectedStep(active.id))
+  // Track which steps have completed (in order) for the stream
+  const [completedOrder, setCompletedOrder] = useState<string[]>([])
+  const [activeStepId, setActiveStepId] = useState<string | null>(null)
+
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  // Auto-scroll to bottom when new content appears
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
+    }
+  }, [completedOrder, activeStepId])
+  // Scroll to section when sidebar item clicked
+  const scrollToSection = useCallback((stepId: string) => {
+    setSelectedStep(stepId)
+    const el = sectionRefs.current[stepId]
+    if (el && scrollRef.current) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
   }, [])
+
   // SSE connection
   useEffect(() => {
     if (!id) return
@@ -303,20 +334,28 @@ export default function TaskView() {
         id: s.id, label: s.label, status: s.status as StepStatus, detail: "",
       }))
       setSteps(initSteps)
-      if (!selectedStep && initSteps.length) setSelectedStep(initSteps[0].id)
+      if (initSteps.length) setSelectedStep(initSteps[0].id)
     })
 
     es.addEventListener("step_update", (e) => {
       const payload = JSON.parse(e.data)
-      setSteps(prev => {
-        const next = prev.map(s =>
-          s.id === payload.step_id
-            ? { ...s, status: payload.status as StepStatus, detail: payload.detail }
-            : s
+      setSteps(prev => prev.map(s =>
+        s.id === payload.step_id
+          ? { ...s, status: payload.status as StepStatus, detail: payload.detail }
+          : s
+      ))
+
+      if (payload.status === "active") {
+        setActiveStepId(payload.step_id)
+        setSelectedStep(payload.step_id)
+      }
+
+      if (payload.status === "done") {
+        setCompletedOrder(prev =>
+          prev.includes(payload.step_id) ? prev : [...prev, payload.step_id]
         )
-        autoSelect(next)
-        return next
-      })
+        setActiveStepId(null)
+      }
     })
 
     es.addEventListener("step_output", (e) => {
@@ -337,51 +376,11 @@ export default function TaskView() {
       setConnected(false)
     })
 
-    es.onerror = () => {
-      es.close()
-      setConnected(false)
-    }
-
+    es.onerror = () => { es.close(); setConnected(false) }
     return () => { es.close() }
   }, [id])
-  // Resolve which panel to show
-  const currentStep = steps.find(s => s.id === selectedStep)
-  const currentData = stepData[selectedStep]
-
-  function renderPanel() {
-    if (!currentStep) return null
-
-    let panelKey: string
-    let content: React.ReactNode
-
-    if (currentStep.status === "wait") {
-      panelKey = "wait"
-      content = <WaitingPanel />
-    } else if (currentStep.status === "active" || !currentData) {
-      panelKey = "loading"
-      content = <LoadingPanel label={currentStep.label} />
-    } else if (allDone && selectedStep === steps[steps.length - 1]?.id) {
-      panelKey = "completed"
-      content = <CompletedPanel />
-    } else {
-      const Panel = panelMap[selectedStep]
-      panelKey = "data"
-      content = Panel ? <Panel data={currentData} /> : <LoadingPanel label={currentStep.label} />
-    }
-
-    return (
-      <AnimatePresence mode="popLayout">
-        <motion.div
-          key={panelKey}
-          variants={contentFade}
-          initial="initial" animate="animate" exit="exit"
-          className="h-full"
-        >
-          {content}
-        </motion.div>
-      </AnimatePresence>
-    )
-  }
+  // Resolve step label by id
+  const stepLabel = (stepId: string) => steps.find(s => s.id === stepId)?.label || stepId
 
   return (
     <div className="relative min-h-screen overflow-x-hidden">
@@ -400,7 +399,7 @@ export default function TaskView() {
             {steps.map((step, i) => (
               <button
                 key={i}
-                onClick={() => setSelectedStep(step.id)}
+                onClick={() => scrollToSection(step.id)}
                 className={`w-full flex gap-3 px-3 py-3 rounded-md mb-0.5 text-[13px] leading-relaxed transition-all duration-200 text-left cursor-pointer ${
                   selectedStep === step.id
                     ? "bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
@@ -420,6 +419,7 @@ export default function TaskView() {
         </motion.aside>
         {/* Main */}
         <main className="flex flex-col gap-6 h-[calc(100vh-80px)]">
+          {/* Header */}
           <motion.div
             className="bg-white border border-[#E8D5B5] rounded-lg px-6 py-5 flex justify-between items-center shrink-0"
             variants={fadeUp} custom={0.15} initial="hidden" animate="visible"
@@ -434,9 +434,7 @@ export default function TaskView() {
             </div>
             <div className="flex items-center gap-5">
               {allDone ? (
-                <div className="flex items-center gap-2 text-[13px] text-[#22C55E]">
-                  <span>✓</span> Complete
-                </div>
+                <div className="flex items-center gap-2 text-[13px] text-[#22C55E]"><span>✓</span> Complete</div>
               ) : connected ? (
                 <div className="flex items-center gap-2 text-[13px] text-text-muted">
                   <div className="w-1.5 h-1.5 rounded-full bg-c-orange animate-[pulse_1.5s_infinite]" />
@@ -447,19 +445,67 @@ export default function TaskView() {
               )}
             </div>
           </motion.div>
+          {/* Streaming content panel */}
+          <motion.div
+            className="bg-white border border-[#E8D5B5] rounded-lg flex-1 min-h-0 overflow-hidden flex flex-col"
+            variants={fadeUp} custom={0.2} initial="hidden" animate="visible"
+          >
+            {/* Panel header */}
+            <div className="px-5 py-3 border-b border-[#F0E8D8] flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3 font-mono">
+                <div className={`w-2 h-2 rounded-full ${allDone ? "bg-[#22C55E]" : "bg-c-orange animate-[pulse_1.5s_infinite]"}`} />
+                <span className="text-[11px] uppercase tracking-[0.05em] text-text-muted">
+                  Phase // <span className="font-semibold text-text">
+                    {allDone ? "COMPLETE" : activeStepId ? stepLabel(activeStepId).toUpperCase() : "INITIALIZING"}
+                  </span>
+                </span>
+              </div>
+            </div>
 
-          <div className="flex-1 min-h-0 relative">
-            <AnimatePresence mode="popLayout">
-              <motion.div
-                key={selectedStep}
-                variants={panelFade}
-                initial="initial" animate="animate" exit="exit"
-                className="h-full"
-              >
-                {renderPanel()}
-              </motion.div>
-            </AnimatePresence>
-          </div>
+            {/* Scrollable stream */}
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-5">
+              <AnimatePresence>
+                {completedOrder.map((stepId) => {
+                  const data = stepData[stepId]
+                  const Section = sectionMap[stepId]
+                  if (!data || !Section) return null
+
+                  const step = steps.find(s => s.id === stepId)
+                  return (
+                    <motion.div
+                      key={stepId}
+                      ref={(el) => { sectionRefs.current[stepId] = el }}
+                      {...streamIn}
+                    >
+                      <PhaseHeader label={step?.label || stepId} status={step?.status || "done"} />
+                      <Section data={data} />
+                    </motion.div>
+                  )
+                })}
+              </AnimatePresence>
+
+              {/* Active step loader */}
+              {activeStepId && !completedOrder.includes(activeStepId) && (
+                <motion.div {...streamIn} key="loader">
+                  <PhaseHeader label={stepLabel(activeStepId)} status="active" />
+                  <ActiveLoader />
+                </motion.div>
+              )}
+
+              {/* Completion message */}
+              {allDone && (
+                <motion.div {...streamIn} className="pt-4 border-t border-[#F0E8D8]">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-[#22C55E]" />
+                    <span className="font-mono text-[11px] uppercase tracking-[0.05em] text-[#22C55E]">
+                      All steps completed
+                    </span>
+                    <div className="flex-1 h-px bg-[#F0E8D8]" />
+                  </div>
+                </motion.div>
+              )}
+            </div>
+          </motion.div>
         </main>
       </div>
     </div>
