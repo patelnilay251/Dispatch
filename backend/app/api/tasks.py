@@ -90,12 +90,27 @@ def format_sse(event: SSEEvent) -> str:
 @router.get("/tasks")
 async def list_tasks():
     tasks = store.list_all()
-    return {
-        "tasks": [
-            {"id": t.id, "prompt": t.prompt, "status": t.status.value}
-            for t in tasks
-        ]
-    }
+    result = []
+    for t in tasks:
+        current_step = None
+        completed_steps = 0
+        for s in t.steps:
+            if s.status.value == "active":
+                current_step = s.label
+            if s.status.value == "done":
+                completed_steps += 1
+        result.append({
+            "id": t.id,
+            "prompt": t.prompt,
+            "repo": t.repo,
+            "branch": t.branch,
+            "status": t.status.value,
+            "current_step": current_step,
+            "total_steps": len(t.steps),
+            "completed_steps": completed_steps,
+            "created_at": t.created_at.isoformat(),
+        })
+    return {"tasks": result}
 
 
 @router.get("/tasks/{task_id}")

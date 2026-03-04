@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { useParams } from "react-router"
+import { useParams, Link } from "react-router"
 import { motion, AnimatePresence } from "framer-motion"
 
 const fadeUp = {
@@ -386,7 +386,20 @@ export default function TaskView() {
     <div className="relative min-h-screen overflow-x-hidden">
       <div className="grid-bg fixed inset-0 z-0" />
 
-      <div className="max-w-[1344px] mx-auto mt-10 px-12 grid grid-cols-[320px_1fr] gap-8 relative z-10">
+      {/* Nav */}
+      <nav className="relative z-10 flex justify-between items-center h-12 px-12 max-w-[1344px] mx-auto">
+        <Link to="/dashboard" className="font-mono text-sm font-medium text-text no-underline flex items-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
+          <div className="w-4 h-4 bg-c-orange grid grid-cols-2 grid-rows-2 gap-px p-px">
+            <div className="bg-bg opacity-0" /><div className="bg-bg" /><div className="bg-bg" /><div className="bg-bg" />
+          </div>
+          Dispatch
+        </Link>
+        <Link to="/dashboard" className="font-mono text-xs text-text-muted no-underline hover:text-text transition-colors">
+          Dashboard
+        </Link>
+      </nav>
+
+      <div className="max-w-[1344px] mx-auto mt-4 px-12 grid grid-cols-[320px_1fr] gap-8 relative z-10">
         {/* Sidebar */}
         <motion.aside
           className="bg-[#FFFDF8] border border-[#E8D5B5] rounded-lg flex flex-col h-[calc(100vh-80px)]"

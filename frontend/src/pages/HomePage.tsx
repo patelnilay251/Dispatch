@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useNavigate } from "react-router"
+import { useNavigate, Link } from "react-router"
 import { motion } from "framer-motion"
 
 const fadeUp = {
@@ -67,7 +67,21 @@ export default function HomePage() {
   return (
     <div className="relative min-h-screen flex flex-col overflow-x-hidden">
       <div className="grid-bg z-0" />
-      <main className="flex-1 flex flex-col items-center pt-[12vh] relative z-10">
+
+      {/* Nav */}
+      <nav className="relative z-10 flex justify-between items-center h-16 px-12 max-w-[1400px] mx-auto w-full">
+        <Link to="/dashboard" className="font-mono text-sm font-medium text-text no-underline flex items-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
+          <div className="w-4 h-4 bg-c-orange grid grid-cols-2 grid-rows-2 gap-px p-px">
+            <div className="bg-bg opacity-0" /><div className="bg-bg" /><div className="bg-bg" /><div className="bg-bg" />
+          </div>
+          Dispatch
+        </Link>
+        <Link to="/dashboard" className="font-mono text-xs text-text-muted no-underline hover:text-text transition-colors">
+          Dashboard
+        </Link>
+      </nav>
+
+      <main className="flex-1 flex flex-col items-center pt-[8vh] relative z-10">
         <motion.div className="text-center mb-16 max-w-[800px] px-6" initial="hidden" animate="visible">
           <motion.h1 className="text-[56px] font-medium tracking-[-0.04em] leading-[1.1] mb-5 text-text" variants={fadeUp} custom={0.05}>
             The async cloud coding agent.
