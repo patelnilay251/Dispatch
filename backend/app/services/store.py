@@ -1,5 +1,5 @@
 import asyncio
-from app.models.task import Task, SSEEvent
+from app.models.task import Task
 
 
 class TaskStore:
@@ -7,7 +7,7 @@ class TaskStore:
 
     def __init__(self):
         self._tasks: dict[str, Task] = {}
-        self._queues: dict[str, asyncio.Queue[SSEEvent | None]] = {}
+        self._queues: dict[str, asyncio.Queue] = {}
 
     def create(self, task: Task) -> Task:
         self._tasks[task.id] = task
@@ -24,16 +24,15 @@ class TaskStore:
     def list_all(self) -> list[Task]:
         return list(self._tasks.values())
 
-    def get_queue(self, task_id: str) -> asyncio.Queue[SSEEvent | None] | None:
+    def get_queue(self, task_id: str) -> asyncio.Queue | None:
         return self._queues.get(task_id)
 
-    def push_event(self, task_id: str, event: SSEEvent):
+    def push_event(self, task_id: str, event: dict):
         q = self._queues.get(task_id)
         if q:
             q.put_nowait(event)
 
     def close_stream(self, task_id: str):
-        """Push None sentinel to signal stream end."""
         q = self._queues.get(task_id)
         if q:
             q.put_nowait(None)

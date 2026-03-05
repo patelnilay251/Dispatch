@@ -5,9 +5,7 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
 
-from app.models.task import (
-    CreateTaskRequest, CreateTaskResponse, Task, TaskStatus, SSEEvent,
-)
+from app.models.task import CreateTaskRequest, CreateTaskResponse, Task, TaskStatus
 from app.services.store import store
 from app.services.pipeline import run_pipeline
 
@@ -16,13 +14,12 @@ router = APIRouter(tags=["tasks"])
 
 @router.post("/tasks", response_model=CreateTaskResponse)
 async def create_task(req: CreateTaskRequest, background: BackgroundTasks):
-    """Create a task and kick off the pipeline in the background."""
     task_id = f"DSP-{uuid.uuid4().hex[:4].upper()}"
     task = Task(
         id=task_id,
         prompt=req.prompt,
         repo=req.repo,
-        branch="feat/tenant-auth",
+        branch="feat/dispatch-task",
     )
     store.create(task)
     background.add_task(run_pipeline, task)
@@ -30,7 +27,7 @@ async def create_task(req: CreateTaskRequest, background: BackgroundTasks):
 
 @router.get("/tasks/{task_id}/stream")
 async def stream_task(task_id: str):
-    """SSE stream for real-time task progress."""
+    """SSE stream — emits agent events as they happen."""
     task = store.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -40,36 +37,19 @@ async def stream_task(task_id: str):
         raise HTTPException(status_code=404, detail="No stream for task")
 
     async def event_generator():
-        # Send initial task state
-        yield format_sse(SSEEvent(
-            type="task_init",
-            detail=task.prompt,
-            data={
-                "id": task.id,
-                "prompt": task.prompt,
-                "repo": task.repo,
-                "branch": task.branch,
-                "steps": [
-                    {"id": s.id, "label": s.label, "status": s.status.value}
-                    for s in task.steps
-                ] if task.steps else [],
-            },
-        ))
-
-        # Stream events from queue
         while True:
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=60.0)
+                event = await asyncio.wait_for(queue.get(), timeout=120.0)
             except asyncio.TimeoutError:
-                # Send keepalive
                 yield ": keepalive\n\n"
                 continue
 
             if event is None:
-                # Stream ended
                 break
 
-            yield format_sse(event)
+            event_type = event.get("type", "unknown")
+            data = json.dumps(event)
+            yield f"event: {event_type}\ndata: {data}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -81,36 +61,24 @@ async def stream_task(task_id: str):
         },
     )
 
-
-def format_sse(event: SSEEvent) -> str:
-    data = event.model_dump_json()
-    return f"event: {event.type}\ndata: {data}\n\n"
-
-
 @router.get("/tasks")
 async def list_tasks():
     tasks = store.list_all()
-    result = []
-    for t in tasks:
-        current_step = None
-        completed_steps = 0
-        for s in t.steps:
-            if s.status.value == "active":
-                current_step = s.label
-            if s.status.value == "done":
-                completed_steps += 1
-        result.append({
-            "id": t.id,
-            "prompt": t.prompt,
-            "repo": t.repo,
-            "branch": t.branch,
-            "status": t.status.value,
-            "current_step": current_step,
-            "total_steps": len(t.steps),
-            "completed_steps": completed_steps,
-            "created_at": t.created_at.isoformat(),
-        })
-    return {"tasks": result}
+    return {
+        "tasks": [
+            {
+                "id": t.id,
+                "prompt": t.prompt,
+                "repo": t.repo,
+                "status": t.status.value,
+                "iterations": t.iterations,
+                "total_tokens": t.total_tokens,
+                "created_at": t.created_at.isoformat(),
+                "summary": t.summary,
+            }
+            for t in tasks
+        ]
+    }
 
 
 @router.get("/tasks/{task_id}")

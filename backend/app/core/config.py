@@ -12,5 +12,10 @@ class Settings:
     GITHUB_CLIENT_SECRET: str = os.getenv("GITHUB_CLIENT_SECRET", "")
     CORS_ORIGINS: list[str] = ["http://localhost:5173"]
 
+    # Models
+    AGENT_MODEL: str = "devstral-latest"
+    EMBED_MODEL: str = "mistral-embed"
+    REASONING_MODEL: str = "magistral-medium-latest"
+
 
 settings = Settings()
