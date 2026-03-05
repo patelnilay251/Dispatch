@@ -10,15 +10,20 @@ class ExecResult:
 
 
 class SandboxProvider(ABC):
-    """Abstract interface for cloud compute sandboxes."""
+    """Abstract interface for cloud compute sandboxes.
+
+    Implementations:
+      - E2BSandboxProvider (e2b_sandbox.py) — E2B Firecracker microVMs
+      - Future: ModalSandboxProvider, DaytonaSandboxProvider, etc.
+    """
 
     @abstractmethod
-    async def create(self, repo_url: str) -> str:
-        """Clone repo into a new sandbox. Returns sandbox_id."""
+    async def create(self, repo_url: str = "") -> str:
+        """Create a new sandbox, optionally clone a repo. Returns sandbox_id."""
         ...
 
     @abstractmethod
-    async def exec(self, sandbox_id: str, command: str) -> ExecResult:
+    async def exec(self, sandbox_id: str, command: str, cwd: str = "", timeout: int = 60) -> ExecResult:
         """Execute a command in the sandbox."""
         ...
 

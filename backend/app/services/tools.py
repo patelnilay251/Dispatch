@@ -9,7 +9,6 @@ Tools operate against a workspace directory (cloned repo or temp dir).
 """
 
 import os
-import json
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,13 +51,14 @@ class Workspace:
     All tool operations are scoped to this directory."""
 
     def __init__(self, base_path: str):
-        self.path = Path(base_path)
+        # Resolve symlinks upfront (fixes macOS /var -> /private/var)
+        self.path = Path(base_path).resolve()
         self.path.mkdir(parents=True, exist_ok=True)
 
     def resolve(self, relative_path: str) -> Path:
         """Resolve and validate a path is within the workspace."""
         resolved = (self.path / relative_path).resolve()
-        if not str(resolved).startswith(str(self.path.resolve())):
+        if not str(resolved).startswith(str(self.path)):
             raise ValueError(f"Path escapes workspace: {relative_path}")
         return resolved
 

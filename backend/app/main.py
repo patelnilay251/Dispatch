@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api import health, tasks
+from app.api import health, tasks, auth, github
 
 app = FastAPI(
     title="Dispatch",
@@ -19,4 +19,6 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(auth.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
+app.include_router(github.router, prefix="/api")

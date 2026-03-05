@@ -13,7 +13,6 @@ streamed to the frontend in real-time.
 
 import json
 import asyncio
-from datetime import datetime
 from dataclasses import dataclass
 
 from app.services.mistral import chat_complete, extract_text
@@ -54,14 +53,21 @@ MAX_TOOL_CALLS_PER_TURN = 10
 class Agent:
     """The core agent loop. Runs against a workspace, streams events."""
 
-    def __init__(self, workspace: Workspace, emit: asyncio.Queue):
+    def __init__(self, workspace: Workspace | None, emit: asyncio.Queue, tools_override: list | None = None):
         self.workspace = workspace
         self.emit = emit  # Queue for SSE events
-        self.tools = make_tools(workspace)
+        # Use override tools (e.g. sandbox tools) or local workspace tools
+        if tools_override:
+            self.tools = tools_override
+        elif workspace:
+            self.tools = make_tools(workspace)
+        else:
+            self.tools = []
         self.tool_map = {t.name: t for t in self.tools}
         self.messages: list[dict] = []
         self.iteration = 0
         self.total_tokens = 0
+        self.summary = ""
 
     def _push(self, event: AgentEvent):
         self.emit.put_nowait({"type": event.type, **event.data})
@@ -179,6 +185,7 @@ class Agent:
             # Check if task is complete
             if "TASK_COMPLETE:" in text:
                 summary = text.split("TASK_COMPLETE:", 1)[1].strip()
+                self.summary = summary
                 self._push(AgentEvent(
                     type="agent_message",
                     data={"content": summary, "role": "assistant"},
@@ -199,9 +206,12 @@ class Agent:
                 data={"content": text, "role": "assistant"},
             ))
 
-            # If model produced text without tool calls AND didn't say TASK_COMPLETE,
-            # it might be asking a question or thinking aloud. Continue the loop —
-            # the model will get another chance to use tools.
+            # Model produced text without tool calls and didn't say TASK_COMPLETE.
+            # Add a nudge so the conversation alternates user/assistant properly.
+            self.messages.append({
+                "role": "user",
+                "content": "Continue with the task. Use tools to make progress, or say TASK_COMPLETE: followed by a summary when done.",
+            })
 
         # Exhausted iterations
         self._push(AgentEvent(

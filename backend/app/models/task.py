@@ -12,6 +12,7 @@ class TaskStatus(str, Enum):
 
 class Task(BaseModel):
     id: str
+    user_id: str = ""
     prompt: str
     repo: str
     branch: str = ""
