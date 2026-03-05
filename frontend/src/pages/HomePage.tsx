@@ -1,6 +1,6 @@
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useNavigate, Link } from "react-router"
-import { motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
 import { useAuth } from "../lib/auth"
 import { apiFetch } from "../lib/api"
 
@@ -47,8 +47,118 @@ function GitHubIcon({ size = 14 }: { size?: number }) {
   )
 }
 
+type Repo = {
+  full_name: string
+  private: boolean
+  description: string
+  language: string | null
+  default_branch: string
+}
+
+function RepoSelector({ selected, onSelect, disabled }: {
+  selected: string
+  onSelect: (repo: string) => void
+  disabled: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [repos, setRepos] = useState<Repo[]>([])
+  const [loading, setLoading] = useState(false)
+  const [fetched, setFetched] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Close on click outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+
+  const handleOpen = async () => {
+    if (disabled) return
+    setOpen(!open)
+    if (!fetched) {
+      setLoading(true)
+      try {
+        const res = await apiFetch("/github/repos")
+        const data = await res.json()
+        setRepos(data.repos || [])
+      } catch { /* no token yet — empty list */ }
+      setFetched(true)
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={handleOpen}
+        disabled={disabled}
+        className="inline-flex items-center gap-2 py-1.5 px-3 rounded-md text-sm font-medium text-[#444] bg-transparent border border-transparent cursor-pointer -ml-3 transition-all duration-200 hover:bg-[#F5F5F5] hover:text-text hover:-translate-y-px disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent disabled:hover:translate-y-0"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <circle cx="6" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><circle cx="18" cy="6" r="3" />
+          <path d="M6 9v6" /><path d="M18 9v2a2 2 0 0 1-2 2h-4a2 2 0 0 0-2 2v2" />
+        </svg>
+        <span className="font-mono text-[13px]">{selected}</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`ml-0.5 text-[#888] transition-transform ${open ? "rotate-180" : ""}`}>
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+            transition={{ duration: 0.15 }}
+            className="absolute bottom-full left-0 mb-2 w-[360px] bg-white rounded-lg shadow-[0_16px_48px_rgba(0,0,0,0.1),0_2px_8px_rgba(0,0,0,0.06)] border border-[#E8D5B5] overflow-hidden z-50"
+          >
+            <div className="px-4 py-3 border-b border-[#F0E8D8]">
+              <span className="font-mono text-[11px] uppercase tracking-[0.05em] text-text-muted">Select repository</span>
+            </div>
+            <div className="max-h-[240px] overflow-y-auto">
+              {loading ? (
+                <div className="px-4 py-6 text-center text-text-muted text-sm">Loading repos...</div>
+              ) : repos.length === 0 ? (
+                <div className="px-4 py-6 text-center text-text-muted text-sm">
+                  {fetched ? "No repos found. Check GitHub permissions." : "Loading..."}
+                </div>
+              ) : (
+                repos.map((r) => (
+                  <button
+                    key={r.full_name}
+                    onClick={() => { onSelect(r.full_name); setOpen(false) }}
+                    className={`w-full text-left px-4 py-2.5 flex items-center justify-between transition-colors cursor-pointer border-none ${
+                      selected === r.full_name ? "bg-[#FFF6EB]" : "bg-transparent hover:bg-[#FFFBF5]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <GitHubIcon size={13} />
+                      <span className="font-mono text-[13px] truncate">{r.full_name}</span>
+                      {r.private && (
+                        <span className="font-mono text-[10px] px-1.5 py-px border border-[#F0E8D8] rounded text-text-muted shrink-0">private</span>
+                      )}
+                    </div>
+                    {r.language && (
+                      <span className="font-mono text-[11px] text-text-muted shrink-0 ml-2">{r.language}</span>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 export default function HomePage() {
   const [prompt, setPrompt] = useState("")
+  const [repo, setRepo] = useState("dispatch/core-agent")
   const [submitting, setSubmitting] = useState(false)
   const navigate = useNavigate()
   const { user, loading, signIn, signOut } = useAuth()
@@ -65,7 +175,7 @@ export default function HomePage() {
     try {
       const res = await apiFetch("/tasks", {
         method: "POST",
-        body: JSON.stringify({ prompt: prompt.trim(), repo: "dispatch/core-agent" }),
+        body: JSON.stringify({ prompt: prompt.trim(), repo }),
       })
       const data = await res.json()
       if (data.id) {
@@ -181,16 +291,7 @@ export default function HomePage() {
               disabled={!user && !loading}
             />
             <div className="flex justify-between items-end mt-4">
-              <button className="inline-flex items-center gap-2 py-1.5 px-3 rounded-md text-sm font-medium text-[#444] bg-transparent border border-transparent cursor-pointer -ml-3 transition-all duration-200 hover:bg-[#F5F5F5] hover:text-text hover:-translate-y-px">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <circle cx="6" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><circle cx="18" cy="6" r="3" />
-                  <path d="M6 9v6" /><path d="M18 9v2a2 2 0 0 1-2 2h-4a2 2 0 0 0-2 2v2" />
-                </svg>
-                dispatch/core-agent
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="ml-0.5 text-[#888]">
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
+              <RepoSelector selected={repo} onSelect={setRepo} disabled={!user} />
 
               {user ? (
                 <button

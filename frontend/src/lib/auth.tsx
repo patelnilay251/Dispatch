@@ -35,10 +35,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      async (event, session) => {
         setSession(session)
         setUser(session?.user ?? null)
         setLoading(false)
+
+        // Store GitHub provider token on sign-in so backend can clone private repos
+        if (event === "SIGNED_IN" && session?.provider_token) {
+          try {
+            await fetch("/api/auth/provider-token", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${session.access_token}`,
+              },
+              body: JSON.stringify({ provider_token: session.provider_token }),
+            })
+          } catch {
+            // Non-critical — private repo cloning won't work but public repos still fine
+          }
+        }
       }
     )
 

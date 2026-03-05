@@ -157,12 +157,13 @@ class Agent:
                     else:
                         result = ToolResult(output=f"Unknown tool: {fn_name}", error=True)
 
-                    # Emit tool_result event
+                    # Emit tool_result event (include args so frontend renderers know context)
                     self._push(AgentEvent(
                         type="tool_result",
                         data={
                             "tool": fn_name,
                             "call_id": tc.id,
+                            "args": fn_args,
                             "output": result.output[:5000],  # Truncate for SSE
                             "error": result.error,
                         },
