@@ -13,10 +13,6 @@ class Settings:
     SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
     SUPABASE_SERVICE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
 
-    # GitHub (for OAuth — configured in Supabase dashboard)
-    GITHUB_CLIENT_ID: str = os.getenv("GITHUB_CLIENT_ID", "")
-    GITHUB_CLIENT_SECRET: str = os.getenv("GITHUB_CLIENT_SECRET", "")
-
     # E2B
     E2B_API_KEY: str = os.getenv("E2B_API_KEY", "")
 
