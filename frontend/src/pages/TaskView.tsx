@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useParams, Link } from "react-router"
 import { motion, AnimatePresence } from "framer-motion"
+import { Highlight, themes } from "prism-react-renderer"
 
 /* ─── Animation variants ─── */
 const fadeUp = {
@@ -19,6 +20,20 @@ type AgentEvent = {
   data: Record<string, unknown>
 }
 type TaskMeta = { id: string; prompt: string; repo: string; branch: string; compute: string }
+
+/* ─── Language detection from file path ─── */
+function getLang(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() || ""
+  const map: Record<string, string> = {
+    ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
+    py: "python", rs: "rust", go: "go", rb: "ruby",
+    json: "json", yaml: "yaml", yml: "yaml", toml: "bash",
+    md: "markdown", css: "css", scss: "css", html: "markup",
+    sh: "bash", zsh: "bash", bash: "bash",
+    sql: "sql", graphql: "graphql",
+  }
+  return map[ext] || "bash"
+}
 
 /* ─── Phase divider ─── */
 function PhaseHeader({ label, status }: { label: string; status: "done" | "active" | "error" }) {
@@ -52,145 +67,243 @@ function ActiveLoader() {
   )
 }
 
-/* ─── Sidebar icon for tool type ─── */
+/* ─── Sidebar tool icon ─── */
 function ToolIcon({ tool }: { tool: string }) {
   const cls = "w-3.5 h-3.5 opacity-50"
-  if (tool === "read_file") return (
-    <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
-    </svg>
-  )
-  if (tool === "edit_file") return (
-    <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-    </svg>
-  )
-  if (tool === "run_command") return (
-    <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
-    </svg>
-  )
-  if (tool === "list_files") return (
-    <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    </svg>
-  )
-  if (tool === "search_files") return (
-    <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  )
+  if (tool === "read_file") return <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+  if (tool === "edit_file") return <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+  if (tool === "run_command") return <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg>
+  if (tool === "list_files") return <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+  if (tool === "search_files") return <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
   return <div className="w-3.5 h-3.5 rounded-full bg-[#DDD]" />
 }
 
-/* ─────────────────────────────────────────────────
-   Event renderers — these replace the old section components.
-   Same design vocabulary, but driven by real agent events.
-───────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════
+   Rich section renderers — design building blocks
+═══════════════════════════════════════════════════ */
 
-/* ─── Tool call: read_file result → file content block ─── */
-function FileContentBlock({ path, content, error }: { path: string; content: string; error?: boolean }) {
-  const [collapsed, setCollapsed] = useState(content.length > 800)
-  const display = collapsed ? content.slice(0, 800) + "\n..." : content
+/* ─── Syntax-highlighted code block (doc-block style) ─── */
+function CodeBlock({ path, content, error }: { path: string; content: string; error?: boolean }) {
+  const [collapsed, setCollapsed] = useState(content.split("\n").length > 30)
+  const lines = content.split("\n")
+  const display = collapsed ? lines.slice(0, 30).join("\n") : content
+  const lang = getLang(path)
 
   if (error) return (
-    <div className="font-mono text-xs text-[#EF4444] bg-[#FEF2F2] border border-[#FCA5A5] rounded p-3">{content}</div>
+    <div className="font-mono text-xs text-[#DC2626] bg-[#FFEBEB] border border-[#FCA5A5] rounded p-4">{content}</div>
   )
+
   return (
     <div className="bg-[#FAF8F5] border-l-[3px] border-c-orange rounded-r overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2 text-xs text-text-muted">
-        <div className="flex items-center gap-2">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-60">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2 text-xs text-text-muted">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-60">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
           </svg>
           <span className="font-mono">{path}</span>
+          <span className="text-[10px] px-1.5 py-px border border-[#F0E8D8] rounded text-text-muted">{lang}</span>
         </div>
-        {content.length > 800 && (
+        {lines.length > 30 && (
           <button onClick={() => setCollapsed(!collapsed)} className="font-mono text-[10px] text-c-orange cursor-pointer bg-transparent border-none hover:underline">
-            {collapsed ? "expand" : "collapse"}
+            {collapsed ? `show all (${lines.length} lines)` : "collapse"}
           </button>
         )}
       </div>
-      <pre className="px-4 pb-3 font-mono text-[12px] leading-[1.6] text-text overflow-x-auto whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto">{display}</pre>
+      <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
+        <Highlight theme={themes.github} code={display} language={lang}>
+          {({ tokens, getLineProps, getTokenProps }) => (
+            <pre className="px-4 pb-4 font-mono text-[12px] leading-[1.7] m-0 bg-transparent">
+              {tokens.map((line, i) => (
+                <div key={i} {...getLineProps({ line })} className="flex">
+                  <span className="w-8 shrink-0 text-right pr-3 text-[#C0B8A8] select-none text-[11px]">{i + 1}</span>
+                  <span>
+                    {line.map((token, k) => <span key={k} {...getTokenProps({ token })} />)}
+                  </span>
+                </div>
+              ))}
+            </pre>
+          )}
+        </Highlight>
+      </div>
     </div>
   )
 }
 
-/* ─── Tool call: list_files result → file tree ─── */
-function FileListBlock({ path, content }: { path: string; content: string }) {
-  const files = content.split("\n").filter(Boolean)
+/* ─── Module grid — for directory listings (compact) ─── */
+function FileGrid({ path, content }: { path: string; content: string }) {
+  const entries = content.split("\n").filter(Boolean)
+  const dirs = entries.filter(f => f.endsWith("/"))
+  const files = entries.filter(f => !f.endsWith("/"))
+
+  // If lots of entries, show as compact module-grid style
+  if (entries.length > 6) {
+    // Group files by extension
+    const groups: Record<string, string[]> = {}
+    for (const f of files) {
+      const ext = f.includes(".") ? f.split(".").pop()! : "other"
+      ;(groups[ext] ||= []).push(f)
+    }
+    const sortedGroups = Object.entries(groups).sort((a, b) => b[1].length - a[1].length)
+    const maxCount = Math.max(...sortedGroups.map(([, v]) => v.length), 1)
+
+    return (
+      <div>
+        {/* Dirs as top row */}
+        {dirs.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {dirs.map((d, i) => (
+              <span key={i} className="font-mono text-[11px] bg-[#FFF8E1] border border-[#FDE68A] text-[#D97706] px-2 py-0.5 rounded">{d}</span>
+            ))}
+          </div>
+        )}
+        {/* Files as module cards */}
+        <div className="grid grid-cols-2 gap-3">
+          {sortedGroups.slice(0, 8).map(([ext, fileList]) => {
+            const ratio = fileList.length / maxCount
+            const filled = Math.max(1, Math.round(ratio * 4))
+            return (
+              <div key={ext} className="border border-[#F0E8D8] rounded p-3">
+                <div className="flex justify-between mb-3">
+                  <span className="text-[13px] font-medium">.{ext}</span>
+                  <span className="font-mono text-[11px] text-text-muted">{fileList.length} file{fileList.length !== 1 ? "s" : ""}</span>
+                </div>
+                <div className="flex gap-0.5 mb-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className={`h-1.5 flex-1 rounded-sm ${i < filled ? (i === 0 ? "bg-c-orange" : "bg-c-yellow") : "bg-[#F0E8D8]"}`} />
+                  ))}
+                </div>
+                <div className="font-mono text-[10px] text-text-muted truncate">
+                  {fileList.slice(0, 3).join(", ")}{fileList.length > 3 ? ` +${fileList.length - 3}` : ""}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        {/* Summary metrics */}
+        <div className="grid grid-cols-2 border border-[#F0E8D8] rounded mt-4">
+          <div className="p-3 border-r border-[#F0E8D8]">
+            <div className="text-[10px] uppercase text-text-muted tracking-[0.05em] mb-1">Directories</div>
+            <div className="text-sm font-mono">{dirs.length}</div>
+          </div>
+          <div className="p-3">
+            <div className="text-[10px] uppercase text-text-muted tracking-[0.05em] mb-1">Files</div>
+            <div className="text-sm font-mono">{files.length}</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Small list — simple data table
   return (
-    <div className="font-mono text-[12px] leading-[1.8]">
-      <span className="text-text-muted text-[11px]">{path}/</span>
-      {files.map((f, i) => (
-        <div key={i} className="pl-3">
-          <span className={f.endsWith("/") ? "text-c-orange" : "text-text"}>{f}</span>
+    <div>
+      <div className="grid grid-cols-[1fr_80px] font-mono text-[10px] uppercase text-text-muted tracking-[0.05em] border-b border-[#F0E8D8] pb-2 mb-2">
+        <div>Name</div><div className="text-right">Type</div>
+      </div>
+      {entries.map((f, i) => (
+        <div key={i} className="grid grid-cols-[1fr_80px] items-center py-1.5 border-b border-dashed border-[#F0E8D8] last:border-b-0 text-xs">
+          <div className={`font-mono ${f.endsWith("/") ? "text-c-orange" : ""}`}>{f}</div>
+          <div className="text-right">
+            <span className={`inline-block px-1.5 py-px rounded text-[10px] font-medium border ${
+              f.endsWith("/") ? "bg-[#FFF8E1] text-[#D97706] border-[#FDE68A]" : "bg-[#FAF8F5] text-text-muted border-[#F0E8D8]"
+            }`}>{f.endsWith("/") ? "DIR" : "FILE"}</span>
+          </div>
         </div>
       ))}
     </div>
   )
 }
 
-/* ─── Tool call: edit_file result → edit confirmation ─── */
-function EditBlock({ path, content }: { path: string; content: string }) {
+/* ─── Edit confirmation — plan step style ─── */
+function EditSection({ path, content }: { path: string; content: string }) {
+  const isCreate = content.toLowerCase().startsWith("created")
   return (
-    <div className="flex items-center gap-2 font-mono text-[13px]">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2.5">
-        <polyline points="20 6 9 17 4 12" />
-      </svg>
-      <span className="text-[#22C55E]">{content}</span>
-      <span className="text-text-muted text-[11px] ml-1">→ {path}</span>
+    <div className="flex gap-4">
+      <div className="font-mono text-lg text-c-orange font-light leading-none mt-0.5">
+        {isCreate ? (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF5500" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+        ) : (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF5500" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+        )}
+      </div>
+      <div>
+        <div className="text-sm leading-[1.4] mb-2">{content}</div>
+        <div className="flex gap-2 flex-wrap">
+          <span className="font-mono text-[11px] bg-[#FAF8F5] border border-[#F0E8D8] px-2 py-0.5 rounded-full text-text-muted">{path}</span>
+        </div>
+      </div>
     </div>
   )
 }
 
-/* ─── Tool call: run_command result → dark terminal panel ─── */
-function TerminalBlock({ command, output, error, exitCode }: {
-  command: string; output: string; error?: boolean; exitCode?: number
-}) {
-  const [collapsed, setCollapsed] = useState(output.length > 1500)
-  const display = collapsed ? output.slice(0, 1500) + "\n..." : output
+/* ─── Terminal panel — for run_command results ─── */
+function TerminalPanel({ command, output, error }: { command: string; output: string; error?: boolean }) {
+  const [collapsed, setCollapsed] = useState(output.split("\n").length > 40)
+  const lines = output.split("\n")
+  const display = collapsed ? lines.slice(0, 40).join("\n") : output
+  const hasDiff = lines.some(l => l.startsWith("+") || l.startsWith("-"))
 
   return (
     <div className="bg-[#111] rounded-md overflow-hidden text-[#E5E5E5] -mx-1">
       <div className="flex items-center justify-between bg-[#1A1A1A] border-b border-[#333] px-4">
-        <div className="py-2.5 text-xs font-mono text-c-orange flex items-center gap-2">
-          <span className="text-[#666]">$</span> {command.length > 80 ? command.slice(0, 80) + "..." : command}
+        <div className="py-2.5 text-xs font-mono text-c-orange truncate max-w-[80%]">
+          {command.length > 100 ? command.slice(0, 100) + "..." : command}
         </div>
-        {output.length > 1500 && (
-          <button onClick={() => setCollapsed(!collapsed)} className="font-mono text-[10px] text-[#666] cursor-pointer bg-transparent border-none hover:text-[#AAA]">
-            {collapsed ? "expand" : "collapse"}
+        {lines.length > 40 && (
+          <button onClick={() => setCollapsed(!collapsed)} className="font-mono text-[10px] text-[#666] cursor-pointer bg-transparent border-none hover:text-[#AAA] shrink-0 ml-2">
+            {collapsed ? `show all (${lines.length} lines)` : "collapse"}
           </button>
         )}
       </div>
-      <pre className={`p-4 font-mono text-[12px] leading-[1.6] overflow-x-auto whitespace-pre-wrap break-words max-h-[350px] overflow-y-auto ${
-        error ? "text-[#F87171]" : "text-[#CCC]"
-      }`}>{display || "(no output)"}</pre>
-      {exitCode !== undefined && exitCode !== 0 && (
-        <div className="px-4 py-2 bg-black border-t border-[#333] font-mono text-[11px] text-[#F87171]">
-          exit code: {exitCode}
+      <div className="p-4 font-mono text-[13px] leading-[1.6] overflow-x-auto max-h-[400px] overflow-y-auto">
+        {hasDiff ? lines.filter(l => l.length > 0).map((line, i) => (
+          <div key={i} className={`flex gap-4 ${
+            line.startsWith("+") ? "text-[#4ADE80] bg-[rgba(74,222,128,0.1)]" :
+            line.startsWith("-") ? "text-[#F87171] bg-[rgba(248,113,113,0.1)]" :
+            "text-[#666]"
+          }`}>
+            <span>{line.startsWith("+") ? "+" : line.startsWith("-") ? "-" : " "}</span>
+            <span>{(line.startsWith("+") || line.startsWith("-") ? line.slice(1) : line) || "\u00A0"}</span>
+          </div>
+        )) : (
+          <pre className={`whitespace-pre-wrap break-words ${error ? "text-[#F87171]" : "text-[#CCC]"}`}>{display || "(no output)"}</pre>
+        )}
+      </div>
+      <div className="px-4 py-3 bg-black border-t border-[#333] font-mono text-xs">
+        <span className="text-c-orange">{">"}</span>
+        <span className="ml-2 text-[#666]">dispatch exec</span>
+        {!error && <span className="text-[#4ADE80] ml-2">Done.</span>}
+        {error && <span className="text-[#F87171] ml-2">Failed.</span>}
+      </div>
+    </div>
+  )
+}
+
+/* ─── Search results — data table with badges ─── */
+function SearchSection({ pattern, content }: { pattern: string; content: string }) {
+  const files = content.split("\n").filter(Boolean)
+  const hasResults = !content.startsWith("No files")
+  return (
+    <div>
+      <div className="grid grid-cols-[1fr_80px] font-mono text-[10px] uppercase text-text-muted tracking-[0.05em] border-b border-[#F0E8D8] pb-2 mb-2">
+        <div>Matching files for "{pattern}"</div>
+        <div className="text-right">{hasResults ? files.length : 0} hits</div>
+      </div>
+      {hasResults ? files.map((f, i) => (
+        <div key={i} className="grid grid-cols-[1fr_80px] items-center py-1.5 border-b border-dashed border-[#F0E8D8] last:border-b-0 text-xs">
+          <div className="font-mono">{f}</div>
+          <div className="text-right"><span className="inline-block px-1.5 py-px rounded text-[10px] font-medium bg-[#FFF8E1] text-[#D97706] border border-[#FDE68A]">MATCH</span></div>
         </div>
+      )) : (
+        <div className="py-4 text-sm text-text-muted">No files matching this pattern.</div>
       )}
     </div>
   )
 }
 
-/* ─── Tool call: search_files result ─── */
-function SearchBlock({ pattern, content }: { pattern: string; content: string }) {
-  const files = content.split("\n").filter(Boolean)
-  return (
-    <div>
-      <div className="font-mono text-[11px] text-text-muted mb-2">
-        Matches for "{pattern}" — {files.length} file{files.length !== 1 ? "s" : ""}
-      </div>
-      {files.map((f, i) => (
-        <div key={i} className="font-mono text-[12px] py-0.5 text-text">{f}</div>
-      ))}
-    </div>
-  )
-}
-
-/* ─── Agent message block ─── */
+/* ─── Agent message ─── */
 function MessageBlock({ content, role }: { content: string; role: string }) {
   if (role === "system") return (
     <div className="font-mono text-xs text-text-muted py-1">{content}</div>
@@ -203,58 +316,37 @@ function MessageBlock({ content, role }: { content: string; role: string }) {
 /* ─── Error block ─── */
 function ErrorBlock({ content }: { content: string }) {
   return (
-    <div className="bg-[#FEF2F2] border border-[#FCA5A5] rounded-md p-4 font-mono text-xs text-[#DC2626]">
-      {content}
-    </div>
+    <div className="bg-[#FFEBEB] border border-[#FCA5A5] rounded-md p-4 font-mono text-xs text-[#DC2626]">{content}</div>
   )
 }
 
-/* ─── Completion block ─── */
+/* ─── Completion — PR stats style ─── */
 function CompletionBlock({ summary, iterations, tokens }: { summary: string; iterations: number; tokens: number }) {
   return (
     <div>
-      <div className="text-sm leading-[1.6] text-text whitespace-pre-wrap mb-4">{summary}</div>
+      <div className="font-mono text-[10px] text-c-orange uppercase tracking-wider mb-2">Task Summary</div>
+      <div className="text-sm leading-[1.6] text-text whitespace-pre-wrap mb-6">{summary}</div>
       <div className="flex gap-6 pt-4 border-t border-[#F0E8D8] font-mono">
-        <div>
-          <div className="text-lg font-medium">{iterations}</div>
-          <div className="text-[11px] uppercase text-text-muted">Iterations</div>
+        <div className="flex flex-col gap-1">
+          <span className="text-lg font-medium">{iterations}</span>
+          <span className="text-[11px] uppercase text-text-muted">Iterations</span>
         </div>
-        <div>
-          <div className="text-lg font-medium">{tokens.toLocaleString()}</div>
-          <div className="text-[11px] uppercase text-text-muted">Tokens</div>
+        <div className="flex flex-col gap-1">
+          <span className="text-lg font-medium">{tokens.toLocaleString()}</span>
+          <span className="text-[11px] uppercase text-text-muted">Tokens</span>
         </div>
       </div>
     </div>
   )
 }
 
-/* ─── Render a single event in the stream panel ─── */
+/* ─── Render a single event ─── */
 function EventRenderer({ event }: { event: AgentEvent }) {
   const d = event.data
 
-  if (event.type === "agent_message") {
-    return <MessageBlock content={String(d.content || "")} role={String(d.role || "assistant")} />
-  }
-
-  if (event.type === "agent_error") {
-    return <ErrorBlock content={String(d.content || "Unknown error")} />
-  }
-
-  if (event.type === "tool_call") {
-    const tool = String(d.tool || "")
-    const args = (d.args || {}) as Record<string, unknown>
-    const argStr = Object.entries(args)
-      .filter(([, v]) => typeof v === "string" && (v as string).length < 60)
-      .map(([k, v]) => `${k}: ${v}`)
-      .join(", ")
-    return (
-      <div className="flex items-center gap-2 font-mono text-[12px] text-text-muted py-0.5">
-        <span className="text-c-orange">▶</span>
-        <span className="font-medium text-text">{tool}</span>
-        {argStr && <span className="text-[11px]">({argStr})</span>}
-      </div>
-    )
-  }
+  if (event.type === "agent_message") return <MessageBlock content={String(d.content || "")} role={String(d.role || "assistant")} />
+  if (event.type === "agent_error") return <ErrorBlock content={String(d.content || "Unknown error")} />
+  if (event.type === "tool_call") return null
 
   if (event.type === "tool_result") {
     const tool = String(d.tool || "")
@@ -262,56 +354,32 @@ function EventRenderer({ event }: { event: AgentEvent }) {
     const error = Boolean(d.error)
     const args = (d.args || {}) as Record<string, unknown>
 
-    if (tool === "read_file") {
-      return <FileContentBlock path={String(args.path || d.path || "")} content={output} error={error} />
-    }
-    if (tool === "list_files") {
-      return <FileListBlock path={String(args.path || d.path || ".")} content={output} />
-    }
-    if (tool === "edit_file") {
-      return <EditBlock path={String(args.path || d.path || "")} content={output} />
-    }
-    if (tool === "run_command") {
-      return <TerminalBlock command={String(args.command || d.command || "")} output={output} error={error} />
-    }
-    if (tool === "search_files") {
-      return <SearchBlock pattern={String(args.pattern || d.pattern || "")} content={output} />
-    }
-    // Fallback for unknown tools
-    return (
-      <pre className="font-mono text-[12px] text-text-muted bg-[#FAF8F5] rounded p-3 whitespace-pre-wrap max-h-[200px] overflow-y-auto">{output}</pre>
-    )
+    if (tool === "read_file") return <CodeBlock path={String(args.path || "")} content={output} error={error} />
+    if (tool === "list_files") return <FileGrid path={String(args.path || ".")} content={output} />
+    if (tool === "edit_file") return <EditSection path={String(args.path || "")} content={output} />
+    if (tool === "run_command") return <TerminalPanel command={String(args.command || "")} output={output} error={error} />
+    if (tool === "search_files") return <SearchSection pattern={String(args.pattern || "")} content={output} />
+    return <div className="bg-[#FAF8F5] border-l-[3px] border-[#DDD] rounded-r p-4"><pre className="font-mono text-[12px] text-text-muted whitespace-pre-wrap max-h-[200px] overflow-y-auto">{output}</pre></div>
   }
 
   if (event.type === "task_complete") {
-    return (
-      <CompletionBlock
-        summary={String(d.summary || "")}
-        iterations={Number(d.iterations || 0)}
-        tokens={Number(d.total_tokens || 0)}
-      />
-    )
+    return <CompletionBlock summary={String(d.summary || "")} iterations={Number(d.iterations || 0)} tokens={Number(d.total_tokens || 0)} />
   }
 
   return null
 }
 
-/* ─── Sidebar label for an event ─── */
+/* ─── Sidebar label ─── */
 function eventLabel(e: AgentEvent): string {
-  if (e.type === "agent_message") {
-    const content = String(e.data.content || "")
-    return content.length > 40 ? content.slice(0, 40) + "..." : content
-  }
+  if (e.type === "agent_message") { const c = String(e.data.content || ""); return c.length > 40 ? c.slice(0, 40) + "..." : c }
   if (e.type === "tool_call") return String(e.data.tool || "tool")
-  if (e.type === "tool_result") return `${e.data.tool} result`
   if (e.type === "agent_error") return "Error"
   if (e.type === "task_complete") return "Task Complete"
-  if (e.type === "task_init") return "Initialized"
   return e.type
 }
 
 /* ════════════════════════════════════════════════
-   Main TaskView component
+   Main TaskView
 ════════════════════════════════════════════════ */
 export default function TaskView() {
   const { id } = useParams()
@@ -326,17 +394,12 @@ export default function TaskView() {
   const eventRefs = useRef<Record<number, HTMLDivElement | null>>({})
   const eventCounter = useRef(0)
 
-  // Auto-scroll to bottom when new events arrive
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
-    }
+    if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
   }, [events])
 
-  // SSE connection
   useEffect(() => {
     if (!id) return
-
     const es = new EventSource(`/api/tasks/${id}/stream`)
     setConnected(true)
 
@@ -346,90 +409,49 @@ export default function TaskView() {
       const event: AgentEvent = { id: eventId, type, data: raw }
 
       if (type === "task_init") {
-        setMeta({
-          id: raw.id || id,
-          prompt: raw.prompt || "",
-          repo: raw.repo || "",
-          branch: raw.branch || "",
-          compute: raw.compute || "",
-        })
-        return // Don't add to event stream
+        setMeta({ id: raw.id || id, prompt: raw.prompt || "", repo: raw.repo || "", branch: raw.branch || "", compute: raw.compute || "" })
+        return
       }
-
-      if (type === "tool_call") {
-        setIsThinking(true)
-      }
-      if (type === "tool_result" || type === "agent_message") {
-        setIsThinking(false)
-      }
-
-      if (type === "task_complete") {
-        setAllDone(true)
-        setIsThinking(false)
-        es.close()
-        setConnected(false)
-      }
+      if (type === "tool_call") setIsThinking(true)
+      if (type === "tool_result" || type === "agent_message") setIsThinking(false)
+      if (type === "task_complete") { setAllDone(true); setIsThinking(false); es.close(); setConnected(false) }
 
       setEvents(prev => [...prev, event])
       setSelectedIdx(eventId)
     }
 
-    es.addEventListener("task_init", handleEvent("task_init"))
-    es.addEventListener("tool_call", handleEvent("tool_call"))
-    es.addEventListener("tool_result", handleEvent("tool_result"))
-    es.addEventListener("agent_message", handleEvent("agent_message"))
-    es.addEventListener("agent_error", handleEvent("agent_error"))
-    es.addEventListener("task_complete", handleEvent("task_complete"))
-
+    for (const t of ["task_init", "tool_call", "tool_result", "agent_message", "agent_error", "task_complete"] as const) {
+      es.addEventListener(t, handleEvent(t))
+    }
     es.onerror = () => { es.close(); setConnected(false) }
     return () => { es.close() }
   }, [id])
 
-  // Scroll to event on sidebar click
   const scrollToEvent = (eventId: number) => {
     setSelectedIdx(eventId)
-    const el = eventRefs.current[eventId]
-    if (el && scrollRef.current) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" })
-    }
+    eventRefs.current[eventId]?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
 
-  // Current phase label for panel header
   const lastToolCall = [...events].reverse().find(e => e.type === "tool_call")
-  const phaseLabel = allDone
-    ? "COMPLETE"
-    : lastToolCall
-    ? String(lastToolCall.data.tool || "").toUpperCase()
-    : "INITIALIZING"
+  const phaseLabel = allDone ? "COMPLETE" : lastToolCall ? String(lastToolCall.data.tool || "").toUpperCase().replace("_", " ") : "INITIALIZING"
 
-  // Filter sidebar: show tool_calls, messages, errors, completion — skip tool_results
-  const sidebarEvents = events.filter(e =>
-    e.type === "tool_call" || e.type === "agent_message" || e.type === "agent_error" || e.type === "task_complete"
-  )
+  const sidebarEvents = events.filter(e => e.type === "tool_call" || e.type === "agent_message" || e.type === "agent_error" || e.type === "task_complete")
 
   return (
     <div className="relative min-h-screen overflow-x-hidden">
       <div className="grid-bg fixed inset-0 z-0" />
 
-      {/* Nav */}
       <nav className="relative z-10 flex justify-between items-center h-12 px-12 max-w-[1344px] mx-auto">
         <Link to="/dashboard" className="font-mono text-sm font-medium text-text no-underline flex items-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
-          <div className="w-4 h-4 bg-c-orange grid grid-cols-2 grid-rows-2 gap-px p-px">
-            <div className="bg-bg opacity-0" /><div className="bg-bg" /><div className="bg-bg" /><div className="bg-bg" />
-          </div>
+          <div className="w-4 h-4 bg-c-orange grid grid-cols-2 grid-rows-2 gap-px p-px"><div className="bg-bg opacity-0" /><div className="bg-bg" /><div className="bg-bg" /><div className="bg-bg" /></div>
           Dispatch
         </Link>
-        <Link to="/dashboard" className="font-mono text-xs text-text-muted no-underline hover:text-text transition-colors">
-          Dashboard
-        </Link>
+        <Link to="/dashboard" className="font-mono text-xs text-text-muted no-underline hover:text-text transition-colors">Dashboard</Link>
       </nav>
 
       <div className="max-w-[1344px] mx-auto mt-4 px-12 grid grid-cols-[320px_1fr] gap-8 relative z-10">
-        {/* Sidebar — chronological event log */}
-        <motion.aside
-          className="bg-[#FFFDF8] border border-[#E8D5B5] rounded-lg flex flex-col h-[calc(100vh-80px)]"
-          variants={fadeUp} custom={0.1} initial="hidden" animate="visible"
-        >
+        {/* Sidebar */}
+        <motion.aside className="bg-[#FFFDF8] border border-[#E8D5B5] rounded-lg flex flex-col h-[calc(100vh-80px)]" variants={fadeUp} custom={0.1} initial="hidden" animate="visible">
           <div className="px-5 py-5 border-b border-[#F0E8D8]">
             <h2 className="text-xs font-medium uppercase tracking-[0.05em] text-text-muted">Agent Activity</h2>
           </div>
@@ -439,42 +461,26 @@ export default function TaskView() {
                 key={event.id}
                 onClick={() => scrollToEvent(event.id)}
                 className={`w-full flex gap-3 px-3 py-2.5 rounded-md mb-0.5 text-[12px] leading-relaxed transition-all duration-200 text-left cursor-pointer border-none ${
-                  selectedIdx === event.id
-                    ? "bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
-                    : "bg-transparent hover:bg-[#FFFBF5]"
+                  selectedIdx === event.id ? "bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]" : "bg-transparent hover:bg-[#FFFBF5]"
                 }`}
               >
-                {/* Status indicator */}
-                {event.type === "tool_call" ? (
-                  <div className="mt-[3px] shrink-0"><ToolIcon tool={String(event.data.tool)} /></div>
-                ) : event.type === "task_complete" ? (
-                  <div className="w-2 h-2 rounded-full mt-[5px] shrink-0 bg-[#22C55E]" />
-                ) : event.type === "agent_error" ? (
-                  <div className="w-2 h-2 rounded-full mt-[5px] shrink-0 bg-[#EF4444]" />
-                ) : (
-                  <div className="w-2 h-2 rounded-full mt-[5px] shrink-0 bg-c-orange" />
-                )}
+                {event.type === "tool_call" ? <div className="mt-[3px] shrink-0"><ToolIcon tool={String(event.data.tool)} /></div>
+                 : event.type === "task_complete" ? <div className="w-2 h-2 rounded-full mt-[5px] shrink-0 bg-[#22C55E]" />
+                 : event.type === "agent_error" ? <div className="w-2 h-2 rounded-full mt-[5px] shrink-0 bg-[#EF4444]" />
+                 : <div className="w-2 h-2 rounded-full mt-[5px] shrink-0 bg-c-orange" />}
                 <div className="min-w-0">
-                  <div className="font-medium truncate">
-                    {event.type === "tool_call" ? String(event.data.tool) : eventLabel(event)}
-                  </div>
+                  <div className="font-medium truncate">{event.type === "tool_call" ? String(event.data.tool) : eventLabel(event)}</div>
                   {event.type === "tool_call" && (
                     <div className="text-[11px] mt-0.5 text-text-muted truncate">
-                      {(() => {
-                        const args = (event.data.args || {}) as Record<string, unknown>
-                        const first = Object.values(args).find(v => typeof v === "string" && (v as string).length < 50)
-                        return first ? String(first) : ""
-                      })()}
+                      {(() => { const args = (event.data.args || {}) as Record<string, unknown>; const v = Object.values(args).find(v => typeof v === "string" && (v as string).length < 50); return v ? String(v) : "" })()}
                     </div>
                   )}
                 </div>
               </button>
             ))}
-            {/* Show thinking indicator at bottom of sidebar */}
             {isThinking && !allDone && (
               <div className="flex items-center gap-3 px-3 py-2.5 text-[12px] text-text-muted">
-                <div className="w-2 h-2 rounded-full bg-c-orange animate-[pulse_1.5s_infinite]" />
-                <span>Working...</span>
+                <div className="w-2 h-2 rounded-full bg-c-orange animate-[pulse_1.5s_infinite]" /><span>Working...</span>
               </div>
             )}
           </div>
@@ -482,39 +488,34 @@ export default function TaskView() {
 
         {/* Main */}
         <main className="flex flex-col gap-6 h-[calc(100vh-80px)]">
-          {/* Header */}
-          <motion.div
-            className="bg-white border border-[#E8D5B5] rounded-lg px-6 py-5 flex justify-between items-center shrink-0"
-            variants={fadeUp} custom={0.15} initial="hidden" animate="visible"
-          >
-            <div>
-              <h1 className="text-lg font-medium mb-1">{meta.prompt || "Loading..."}</h1>
-              <div className="text-[13px] text-text-muted flex gap-4">
-                <span>ID: <code className="font-mono">{meta.id}</code></span>
-                {meta.repo && <span>Repo: <code className="font-mono">{meta.repo}</code></span>}
-                {meta.compute && <span className="font-mono text-[11px] px-1.5 py-px border border-[#F0E8D8] rounded">{meta.compute}</span>}
+          {/* Header — metrics grid style */}
+          <motion.div className="bg-white border border-[#E8D5B5] rounded-lg overflow-hidden shrink-0" variants={fadeUp} custom={0.15} initial="hidden" animate="visible">
+            <div className="px-6 py-4 flex justify-between items-center">
+              <h1 className="text-lg font-medium">{meta.prompt || "Loading..."}</h1>
+              <div className="flex items-center gap-5">
+                {allDone ? <div className="flex items-center gap-2 text-[13px] text-[#22C55E]"><span>✓</span> Complete</div>
+                 : connected ? <div className="flex items-center gap-2 text-[13px] text-text-muted"><div className="w-1.5 h-1.5 rounded-full bg-c-orange animate-[pulse_1.5s_infinite]" />Executing</div>
+                 : <div className="text-[13px] text-text-muted">Disconnected</div>}
               </div>
             </div>
-            <div className="flex items-center gap-5">
-              {allDone ? (
-                <div className="flex items-center gap-2 text-[13px] text-[#22C55E]"><span>✓</span> Complete</div>
-              ) : connected ? (
-                <div className="flex items-center gap-2 text-[13px] text-text-muted">
-                  <div className="w-1.5 h-1.5 rounded-full bg-c-orange animate-[pulse_1.5s_infinite]" />
-                  Executing
-                </div>
-              ) : (
-                <div className="text-[13px] text-text-muted">Disconnected</div>
-              )}
+            <div className="grid grid-cols-3 border-t border-[#F0E8D8]">
+              <div className="p-3 px-6 border-r border-[#F0E8D8]">
+                <div className="text-[10px] uppercase text-text-muted tracking-[0.05em] mb-1">Task ID</div>
+                <div className="text-[13px] font-mono">{meta.id}</div>
+              </div>
+              <div className="p-3 px-6 border-r border-[#F0E8D8]">
+                <div className="text-[10px] uppercase text-text-muted tracking-[0.05em] mb-1">Repository</div>
+                <div className="text-[13px] font-mono">{meta.repo || "—"}</div>
+              </div>
+              <div className="p-3 px-6">
+                <div className="text-[10px] uppercase text-text-muted tracking-[0.05em] mb-1">Compute</div>
+                <div className="text-[13px] font-mono">{meta.compute || "—"}</div>
+              </div>
             </div>
           </motion.div>
 
           {/* Streaming content panel */}
-          <motion.div
-            className="bg-white border border-[#E8D5B5] rounded-lg flex-1 min-h-0 overflow-hidden flex flex-col"
-            variants={fadeUp} custom={0.2} initial="hidden" animate="visible"
-          >
-            {/* Panel header */}
+          <motion.div className="bg-white border border-[#E8D5B5] rounded-lg flex-1 min-h-0 overflow-hidden flex flex-col" variants={fadeUp} custom={0.2} initial="hidden" animate="visible">
             <div className="px-5 py-3 border-b border-[#F0E8D8] flex justify-between items-center shrink-0">
               <div className="flex items-center gap-3 font-mono">
                 <div className={`w-2 h-2 rounded-full ${allDone ? "bg-[#22C55E]" : "bg-c-orange animate-[pulse_1.5s_infinite]"}`} />
@@ -522,63 +523,37 @@ export default function TaskView() {
                   Phase // <span className="font-semibold text-text">{phaseLabel}</span>
                 </span>
               </div>
-              <span className="font-mono text-[11px] text-text-muted">
-                {events.filter(e => e.type === "tool_call").length} tool calls
-              </span>
+              <span className="font-mono text-[11px] text-text-muted">{events.filter(e => e.type === "tool_call").length} tool calls</span>
             </div>
 
-            {/* Scrollable stream */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-4">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-5">
               <AnimatePresence>
-                {events.map((event, idx) => {
-                  // Group: show phase header before first tool_call and before messages after tool results
-                  const prev = idx > 0 ? events[idx - 1] : null
-                  const showDivider =
-                    (event.type === "tool_call" && (!prev || prev.type !== "tool_call")) ||
-                    (event.type === "agent_message" && prev && prev.type === "tool_result") ||
-                    event.type === "task_complete" ||
-                    event.type === "agent_error"
-
-                  const dividerLabel =
-                    event.type === "tool_call" ? String(event.data.tool || "tool")
-                    : event.type === "task_complete" ? "Complete"
-                    : event.type === "agent_error" ? "Error"
-                    : event.type === "agent_message" && String(event.data.role) === "system" ? "System"
-                    : "Agent"
-
-                  const dividerStatus: "done" | "active" | "error" =
-                    event.type === "task_complete" ? "done"
-                    : event.type === "agent_error" ? "error"
-                    : "active"
-
+                {events.map((event) => {
+                  if (event.type === "tool_call") {
+                    const tool = String(event.data.tool || "tool")
+                    const args = (event.data.args || {}) as Record<string, unknown>
+                    const detail = Object.values(args).find(v => typeof v === "string" && (v as string).length < 60) || ""
+                    return (
+                      <motion.div key={event.id} ref={(el) => { eventRefs.current[event.id] = el }} {...streamIn}>
+                        <PhaseHeader label={`${tool.replace("_", " ")}${detail ? ` — ${detail}` : ""}`} status="active" />
+                      </motion.div>
+                    )
+                  }
+                  const showDivider = event.type === "task_complete" || event.type === "agent_error"
                   return (
-                    <motion.div
-                      key={event.id}
-                      ref={(el) => { eventRefs.current[event.id] = el }}
-                      {...streamIn}
-                    >
-                      {showDivider && <PhaseHeader label={dividerLabel} status={dividerStatus} />}
+                    <motion.div key={event.id} ref={(el) => { eventRefs.current[event.id] = el }} {...streamIn}>
+                      {showDivider && <PhaseHeader label={event.type === "task_complete" ? "Complete" : "Error"} status={event.type === "task_complete" ? "done" : "error"} />}
                       <EventRenderer event={event} />
                     </motion.div>
                   )
                 })}
               </AnimatePresence>
-
-              {/* Active loader */}
-              {isThinking && !allDone && (
-                <motion.div {...streamIn} key="loader">
-                  <ActiveLoader />
-                </motion.div>
-              )}
-
-              {/* Completion divider */}
+              {isThinking && !allDone && <motion.div {...streamIn} key="loader"><ActiveLoader /></motion.div>}
               {allDone && (
                 <motion.div {...streamIn} className="pt-4 border-t border-[#F0E8D8]">
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 rounded-full bg-[#22C55E]" />
-                    <span className="font-mono text-[11px] uppercase tracking-[0.05em] text-[#22C55E]">
-                      Task completed
-                    </span>
+                    <span className="font-mono text-[11px] uppercase tracking-[0.05em] text-[#22C55E]">Task completed</span>
                     <div className="flex-1 h-px bg-[#F0E8D8]" />
                   </div>
                 </motion.div>

@@ -69,7 +69,7 @@ class Workspace:
 def make_tools(workspace: Workspace) -> list[Tool]:
     """Create all tools bound to a specific workspace."""
 
-    async def read_file(path: str) -> ToolResult:
+    async def read_file(path: str, **kwargs) -> ToolResult:
         """Read contents of a file."""
         resolved = workspace.resolve(path)
         if not resolved.exists():

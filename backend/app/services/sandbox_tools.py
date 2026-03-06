@@ -13,7 +13,7 @@ from app.services.tools import Tool, ToolResult
 def make_sandbox_tools(sandbox: E2BSandboxProvider, sandbox_id: str, project_dir: str = "/home/user/project") -> list[Tool]:
     """Create all tools bound to an E2B sandbox."""
 
-    async def read_file(path: str) -> ToolResult:
+    async def read_file(path: str, **kwargs) -> ToolResult:
         """Read contents of a file."""
         try:
             full_path = f"{project_dir}/{path}" if not path.startswith("/") else path
