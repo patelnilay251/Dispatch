@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react"
 import { useParams, Link } from "react-router"
 import { motion, AnimatePresence } from "framer-motion"
 import { Highlight, themes } from "prism-react-renderer"
+import { apiFetch } from "../lib/api"
 
 /* ─── Animation variants ─── */
 const fadeUp = {
@@ -320,28 +321,100 @@ function ErrorBlock({ content }: { content: string }) {
   )
 }
 
-/* ─── Completion — PR stats style ─── */
-function CompletionBlock({ summary, iterations, tokens }: { summary: string; iterations: number; tokens: number }) {
+/* ─── Completion — PR stats style with Create PR action ─── */
+function CompletionBlock({ summary, iterations, tokens, taskId, repo, hasChanges }: {
+  summary: string; iterations: number; tokens: number; taskId: string; repo: string; hasChanges: boolean
+}) {
+  const [prState, setPrState] = useState<"idle" | "loading" | "done" | "error">("idle")
+  const [prUrl, setPrUrl] = useState("")
+  const [prError, setPrError] = useState("")
+
+  const handleCreatePR = async () => {
+    setPrState("loading")
+    try {
+      const res = await apiFetch(`/tasks/${taskId}/pr`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+      if (res.ok && data.pr_url) {
+        setPrState("done")
+        setPrUrl(data.pr_url)
+      } else {
+        setPrState("error")
+        setPrError(data.detail || data.error || "PR creation failed")
+      }
+    } catch {
+      setPrState("error")
+      setPrError("Network error")
+    }
+  }
+
+  const showPR = repo && repo !== "dispatch/core-agent" && hasChanges
+
   return (
     <div>
       <div className="font-mono text-[10px] text-c-orange uppercase tracking-wider mb-2">Task Summary</div>
       <div className="text-sm leading-[1.6] text-text whitespace-pre-wrap mb-6">{summary}</div>
-      <div className="flex gap-6 pt-4 border-t border-[#F0E8D8] font-mono">
-        <div className="flex flex-col gap-1">
-          <span className="text-lg font-medium">{iterations}</span>
-          <span className="text-[11px] uppercase text-text-muted">Iterations</span>
+      <div className="flex items-end justify-between pt-4 border-t border-[#F0E8D8]">
+        <div className="flex gap-6 font-mono">
+          <div className="flex flex-col gap-1">
+            <span className="text-lg font-medium">{iterations}</span>
+            <span className="text-[11px] uppercase text-text-muted">Iterations</span>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-lg font-medium">{tokens.toLocaleString()}</span>
+            <span className="text-[11px] uppercase text-text-muted">Tokens</span>
+          </div>
         </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-lg font-medium">{tokens.toLocaleString()}</span>
-          <span className="text-[11px] uppercase text-text-muted">Tokens</span>
-        </div>
+        {showPR && (
+          <div>
+            {prState === "idle" && (
+              <button
+                onClick={handleCreatePR}
+                className="h-9 px-5 bg-text text-bg border-none rounded-md font-mono text-xs font-medium cursor-pointer flex items-center gap-2.5 transition-all duration-200 hover:scale-[1.03] hover:shadow-[0_4px_16px_rgba(0,0,0,0.15)] active:scale-[0.97]"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" />
+                  <path d="M13 6h3a2 2 0 0 1 2 2v7" /><line x1="6" y1="9" x2="6" y2="21" />
+                </svg>
+                Create Pull Request
+              </button>
+            )}
+            {prState === "loading" && (
+              <div className="flex items-center gap-2 font-mono text-xs text-text-muted">
+                <div className="w-3.5 h-3.5 border-2 border-text border-t-transparent rounded-full animate-spin" />
+                Creating PR...
+              </div>
+            )}
+            {prState === "done" && (
+              <a
+                href={prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 font-mono text-xs text-[#22C55E] no-underline hover:underline"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                PR opened — view on GitHub
+              </a>
+            )}
+            {prState === "error" && (
+              <div className="flex flex-col items-end gap-1">
+                <span className="font-mono text-[11px] text-[#DC2626]">{prError}</span>
+                <button onClick={() => setPrState("idle")} className="font-mono text-[10px] text-text-muted bg-transparent border-none cursor-pointer hover:text-text">retry</button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 /* ─── Render a single event ─── */
-function EventRenderer({ event }: { event: AgentEvent }) {
+function EventRenderer({ event, taskId, repo, hasChanges }: { event: AgentEvent; taskId: string; repo: string; hasChanges: boolean }) {
   const d = event.data
 
   if (event.type === "agent_message") return <MessageBlock content={String(d.content || "")} role={String(d.role || "assistant")} />
@@ -363,7 +436,7 @@ function EventRenderer({ event }: { event: AgentEvent }) {
   }
 
   if (event.type === "task_complete") {
-    return <CompletionBlock summary={String(d.summary || "")} iterations={Number(d.iterations || 0)} tokens={Number(d.total_tokens || 0)} />
+    return <CompletionBlock summary={String(d.summary || "")} iterations={Number(d.iterations || 0)} tokens={Number(d.total_tokens || 0)} taskId={taskId} repo={repo} hasChanges={hasChanges} />
   }
 
   return null
@@ -389,6 +462,10 @@ export default function TaskView() {
   const [allDone, setAllDone] = useState(false)
   const [connected, setConnected] = useState(false)
   const [isThinking, setIsThinking] = useState(false)
+  const [hasChanges, setHasChanges] = useState(false)
+  const [steerInput, setSteerInput] = useState("")
+  const [steerSending, setSteerSending] = useState(false)
+  const [continuing, setContinuing] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const eventRefs = useRef<Record<number, HTMLDivElement | null>>({})
@@ -412,9 +489,26 @@ export default function TaskView() {
         setMeta({ id: raw.id || id, prompt: raw.prompt || "", repo: raw.repo || "", branch: raw.branch || "", compute: raw.compute || "" })
         return
       }
+
+      // Continuation: if we get tool_call/agent_message after completion, agent resumed
+      if (type === "tool_call" || type === "agent_message") {
+        setAllDone(false)
+        setContinuing(false)
+      }
+
       if (type === "tool_call") setIsThinking(true)
       if (type === "tool_result" || type === "agent_message") setIsThinking(false)
-      if (type === "task_complete") { setAllDone(true); setIsThinking(false); es.close(); setConnected(false) }
+
+      // Track changes from edit_file results (for PR button)
+      if (type === "tool_result" && raw.tool === "edit_file" && !raw.error) {
+        setHasChanges(true)
+      }
+
+      // Don't close stream on completion — keep alive for continuation
+      if (type === "task_complete") {
+        setAllDone(true)
+        setIsThinking(false)
+      }
 
       setEvents(prev => [...prev, event])
       setSelectedIdx(eventId)
@@ -423,9 +517,35 @@ export default function TaskView() {
     for (const t of ["task_init", "tool_call", "tool_result", "agent_message", "agent_error", "task_complete"] as const) {
       es.addEventListener(t, handleEvent(t))
     }
+    // Also listen for diff event (for PR file reconstruction)
+    es.addEventListener("task_diff", () => setHasChanges(true))
+
     es.onerror = () => { es.close(); setConnected(false) }
     return () => { es.close() }
   }, [id])
+
+  // Steer — send follow-up message (works during execution AND after completion)
+  const handleSteer = async () => {
+    if (!steerInput.trim() || steerSending || !id) return
+    const msg = steerInput.trim()
+    setSteerSending(true)
+    try {
+      const res = await apiFetch(`/tasks/${id}/steer`, {
+        method: "POST",
+        body: JSON.stringify({ message: msg }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setSteerInput("")
+        if (data.status === "continuing") {
+          // Backend is running agent.continue_with() — new events will stream in
+          setContinuing(true)
+          setIsThinking(true)
+        }
+      }
+    } catch { /* ignore */ }
+    setSteerSending(false)
+  }
 
   const scrollToEvent = (eventId: number) => {
     setSelectedIdx(eventId)
@@ -433,7 +553,13 @@ export default function TaskView() {
   }
 
   const lastToolCall = [...events].reverse().find(e => e.type === "tool_call")
-  const phaseLabel = allDone ? "COMPLETE" : lastToolCall ? String(lastToolCall.data.tool || "").toUpperCase().replace("_", " ") : "INITIALIZING"
+  const phaseLabel = continuing
+    ? "CONTINUING"
+    : allDone
+    ? "COMPLETE"
+    : lastToolCall
+    ? String(lastToolCall.data.tool || "").toUpperCase().replace("_", " ")
+    : "INITIALIZING"
 
   const sidebarEvents = events.filter(e => e.type === "tool_call" || e.type === "agent_message" || e.type === "agent_error" || e.type === "task_complete")
 
@@ -478,9 +604,9 @@ export default function TaskView() {
                 </div>
               </button>
             ))}
-            {isThinking && !allDone && (
+            {(isThinking && !allDone || continuing) && (
               <div className="flex items-center gap-3 px-3 py-2.5 text-[12px] text-text-muted">
-                <div className="w-2 h-2 rounded-full bg-c-orange animate-[pulse_1.5s_infinite]" /><span>Working...</span>
+                <div className="w-2 h-2 rounded-full bg-c-orange animate-[pulse_1.5s_infinite]" /><span>{continuing ? "Continuing..." : "Working..."}</span>
               </div>
             )}
           </div>
@@ -493,7 +619,8 @@ export default function TaskView() {
             <div className="px-6 py-4 flex justify-between items-center">
               <h1 className="text-lg font-medium">{meta.prompt || "Loading..."}</h1>
               <div className="flex items-center gap-5">
-                {allDone ? <div className="flex items-center gap-2 text-[13px] text-[#22C55E]"><span>✓</span> Complete</div>
+                {continuing ? <div className="flex items-center gap-2 text-[13px] text-text-muted"><div className="w-1.5 h-1.5 rounded-full bg-c-orange animate-[pulse_1.5s_infinite]" />Continuing</div>
+                 : allDone ? <div className="flex items-center gap-2 text-[13px] text-[#22C55E]"><span>✓</span> Complete</div>
                  : connected ? <div className="flex items-center gap-2 text-[13px] text-text-muted"><div className="w-1.5 h-1.5 rounded-full bg-c-orange animate-[pulse_1.5s_infinite]" />Executing</div>
                  : <div className="text-[13px] text-text-muted">Disconnected</div>}
               </div>
@@ -518,7 +645,7 @@ export default function TaskView() {
           <motion.div className="bg-white border border-[#E8D5B5] rounded-lg flex-1 min-h-0 overflow-hidden flex flex-col" variants={fadeUp} custom={0.2} initial="hidden" animate="visible">
             <div className="px-5 py-3 border-b border-[#F0E8D8] flex justify-between items-center shrink-0">
               <div className="flex items-center gap-3 font-mono">
-                <div className={`w-2 h-2 rounded-full ${allDone ? "bg-[#22C55E]" : "bg-c-orange animate-[pulse_1.5s_infinite]"}`} />
+                <div className={`w-2 h-2 rounded-full ${allDone && !continuing ? "bg-[#22C55E]" : "bg-c-orange animate-[pulse_1.5s_infinite]"}`} />
                 <span className="text-[11px] uppercase tracking-[0.05em] text-text-muted">
                   Phase // <span className="font-semibold text-text">{phaseLabel}</span>
                 </span>
@@ -543,13 +670,13 @@ export default function TaskView() {
                   return (
                     <motion.div key={event.id} ref={(el) => { eventRefs.current[event.id] = el }} {...streamIn}>
                       {showDivider && <PhaseHeader label={event.type === "task_complete" ? "Complete" : "Error"} status={event.type === "task_complete" ? "done" : "error"} />}
-                      <EventRenderer event={event} />
+                      <EventRenderer event={event} taskId={meta.id} repo={meta.repo} hasChanges={hasChanges} />
                     </motion.div>
                   )
                 })}
               </AnimatePresence>
-              {isThinking && !allDone && <motion.div {...streamIn} key="loader"><ActiveLoader /></motion.div>}
-              {allDone && (
+              {(isThinking && !allDone || continuing) && <motion.div {...streamIn} key="loader"><ActiveLoader /></motion.div>}
+              {allDone && !continuing && (
                 <motion.div {...streamIn} className="pt-4 border-t border-[#F0E8D8]">
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 rounded-full bg-[#22C55E]" />
@@ -559,6 +686,36 @@ export default function TaskView() {
                 </motion.div>
               )}
             </div>
+
+            {/* Steer / continue input — always visible when connected */}
+            {connected && (
+              <div className="px-5 py-3 border-t border-[#F0E8D8] shrink-0">
+                <div className="flex gap-3 items-center">
+                  <input
+                    type="text"
+                    value={steerInput}
+                    onChange={(e) => setSteerInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSteer() } }}
+                    placeholder={allDone ? "Send a follow-up instruction..." : "Steer the agent..."}
+                    disabled={steerSending || continuing}
+                    className="flex-1 bg-transparent border-none outline-none font-mono text-[13px] text-text placeholder:text-[#C0B8A8] disabled:opacity-50"
+                  />
+                  <button
+                    onClick={handleSteer}
+                    disabled={!steerInput.trim() || steerSending || continuing}
+                    className="w-8 h-8 bg-text border-none rounded-md flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-[1.08] active:scale-[0.94] disabled:opacity-20 disabled:cursor-default disabled:hover:scale-100 shrink-0"
+                  >
+                    {steerSending || continuing ? (
+                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="12" y1="19" x2="12" y2="5" /><polyline points="5 12 12 5 19 12" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </motion.div>
         </main>
       </div>

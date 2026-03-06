@@ -11,7 +11,6 @@ class PersistentQueue(asyncio.Queue):
 
     def put_nowait(self, item):
         super().put_nowait(item)
-        # Persist to Supabase (fire and forget)
         if item is not None and isinstance(item, dict):
             try:
                 from app.services.supabase_client import get_supabase
@@ -22,19 +21,21 @@ class PersistentQueue(asyncio.Queue):
                     "data": item,
                 }).execute()
             except Exception:
-                pass  # Don't let persistence failures block streaming
+                pass
 
 
 class TaskStore:
-    """In-memory task store with Supabase-persisting queues."""
+    """In-memory task store with SSE queues and steer queues."""
 
     def __init__(self):
         self._tasks: dict[str, Task] = {}
         self._queues: dict[str, PersistentQueue] = {}
+        self._steer_queues: dict[str, asyncio.Queue] = {}
 
     def create(self, task: Task) -> Task:
         self._tasks[task.id] = task
         self._queues[task.id] = PersistentQueue(task.id)
+        self._steer_queues[task.id] = asyncio.Queue()
         return task
 
     def get(self, task_id: str) -> Task | None:
@@ -50,10 +51,19 @@ class TaskStore:
     def get_queue(self, task_id: str) -> PersistentQueue | None:
         return self._queues.get(task_id)
 
+    def get_steer_queue(self, task_id: str) -> asyncio.Queue | None:
+        return self._steer_queues.get(task_id)
+
     def push_event(self, task_id: str, event: dict):
         q = self._queues.get(task_id)
         if q:
             q.put_nowait(event)
+
+    def push_steer(self, task_id: str, message: str):
+        """Push a steer message for the agent to pick up."""
+        q = self._steer_queues.get(task_id)
+        if q:
+            q.put_nowait(message)
 
     def close_stream(self, task_id: str):
         q = self._queues.get(task_id)
