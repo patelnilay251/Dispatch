@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react"
-import { useNavigate } from "react-router"
+import { useNavigate, Link } from "react-router"
 import { motion } from "framer-motion"
+import { useAuth } from "../lib/auth"
+import { apiFetch } from "../lib/api"
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -13,10 +15,11 @@ type TaskSummary = {
   repo: string
   branch: string
   status: string
-  current_step: string | null
-  total_steps: number
-  completed_steps: number
+  summary: string
+  iterations: number
+  total_tokens: number
   created_at: string
+  completed_at: string | null
 }
 
 /* ─── Pixel processing indicator ─── */
@@ -35,28 +38,42 @@ function PixelLoader() {
     </div>
   )
 }
+
 export default function Dashboard() {
   const navigate = useNavigate()
+  const { user, loading, signIn, signOut } = useAuth()
   const [tasks, setTasks] = useState<TaskSummary[]>([])
 
-  // Fetch tasks with polling
+  // Redirect to home if not logged in
   useEffect(() => {
+    if (!loading && !user) navigate("/")
+  }, [loading, user, navigate])
+
+  // Fetch tasks with polling (authenticated)
+  useEffect(() => {
+    if (!user) return
+
     const fetchTasks = async () => {
       try {
-        const res = await fetch("/api/tasks")
-        const data = await res.json()
-        setTasks(data.tasks || [])
-      } catch { /* backend not running — use empty */ }
+        const res = await apiFetch("/tasks")
+        if (res.ok) {
+          const data = await res.json()
+          setTasks(data.tasks || [])
+        }
+      } catch { /* backend not running */ }
     }
     fetchTasks()
     const interval = setInterval(fetchTasks, 3000)
     return () => clearInterval(interval)
-  }, [])
+  }, [user])
 
   const activeTasks = tasks.filter(t => t.status === "running" || t.status === "pending")
   const completedTasks = tasks.filter(t => t.status === "completed" || t.status === "failed")
   const successCount = tasks.filter(t => t.status === "completed").length
-  const rate = tasks.length > 0 ? ((successCount / tasks.length) * 100).toFixed(1) : "—"
+  const totalTokens = tasks.reduce((sum, t) => sum + (t.total_tokens || 0), 0)
+  const rate = tasks.length > 0 ? ((successCount / tasks.length) * 100).toFixed(0) : "—"
+
+  if (loading) return null
 
   return (
     <div className="relative min-h-screen overflow-x-hidden">
@@ -70,7 +87,7 @@ export default function Dashboard() {
           animate={{ opacity: 1 }}
           transition={{ duration: 0.4 }}
         >
-          <button onClick={() => navigate("/")} className="flex items-center gap-2 font-mono text-sm font-medium cursor-pointer bg-transparent border-none text-text opacity-60 hover:opacity-100 transition-opacity">
+          <Link to="/" className="flex items-center gap-2 font-mono text-sm font-medium no-underline text-text opacity-60 hover:opacity-100 transition-opacity">
             <div className="w-4 h-4 bg-c-orange grid grid-cols-2 grid-rows-2 gap-px p-px">
               <div className="bg-bg opacity-0" />
               <div className="bg-bg" />
@@ -78,20 +95,43 @@ export default function Dashboard() {
               <div className="bg-bg" />
             </div>
             Dispatch
-          </button>
-          <button
-            onClick={() => navigate("/")}
-            className="bg-text text-bg border-none h-8 px-4 font-mono text-xs font-medium cursor-pointer flex items-center gap-3 hover:opacity-90 transition-opacity"
-          >
-            Deploy Agent <span className="text-c-orange">→</span>
-          </button>
+          </Link>
+          <div className="flex items-center gap-5">
+            {user && (
+              <button
+                onClick={signOut}
+                className="flex items-center gap-2 bg-transparent border-none cursor-pointer group"
+              >
+                {user.user_metadata?.avatar_url ? (
+                  <img
+                    src={user.user_metadata.avatar_url}
+                    alt=""
+                    className="w-5 h-5 rounded-full opacity-60 group-hover:opacity-100 transition-opacity"
+                  />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-[#E8D5B5] opacity-60 group-hover:opacity-100 transition-opacity" />
+                )}
+                <span className="font-mono text-xs text-text-muted group-hover:text-text transition-colors">
+                  {user.user_metadata?.user_name}
+                </span>
+              </button>
+            )}
+            <button
+              onClick={() => navigate("/")}
+              className="bg-text text-bg border-none h-8 px-4 font-mono text-xs font-medium cursor-pointer flex items-center gap-3 hover:opacity-90 transition-opacity"
+            >
+              Deploy Agent <span className="text-c-orange">→</span>
+            </button>
+          </div>
         </motion.header>
+
         {/* Stats */}
-        <section className="grid grid-cols-3 gap-10 py-16 border-b border-[#E8E3D3]">
+        <section className="grid grid-cols-4 gap-10 py-16 border-b border-[#E8E3D3]">
           {[
-            { label: "Total Executions", value: String(tasks.length || "0").padStart(1, "0") },
+            { label: "Total Executions", value: String(tasks.length || "0") },
             { label: "Active Agents", value: String(activeTasks.length).padStart(2, "0") },
             { label: "Success Rate", value: tasks.length > 0 ? `${rate}%` : "—" },
+            { label: "Total Tokens", value: totalTokens > 0 ? formatTokens(totalTokens) : "—" },
           ].map((s, i) => (
             <motion.div
               key={s.label}
@@ -106,6 +146,7 @@ export default function Dashboard() {
             </motion.div>
           ))}
         </section>
+
         {/* Split: Live + History */}
         <div className="grid grid-cols-[1.2fr_1fr] gap-16 py-14 items-start">
           {/* Live Telemetry */}
@@ -129,12 +170,12 @@ export default function Dashboard() {
                   transition={{ duration: 0.5, delay: 0.4 + i * 0.1, ease: [0.16, 1, 0.3, 1] }}
                 >
                   <div className="flex flex-col gap-3 z-[2]">
-                    <div className="font-mono text-base font-medium">{task.repo}</div>
+                    <div className="font-mono text-base font-medium">{task.repo || "dispatch/core-agent"}</div>
                     <div className="text-xl font-medium tracking-[-0.02em] leading-[1.1]">
-                      {task.current_step || task.prompt}
+                      {task.prompt.length > 60 ? task.prompt.slice(0, 60) + "..." : task.prompt}
                     </div>
                     <div className="font-mono text-xs opacity-80">
-                      [{task.id}] {task.completed_steps}/{task.total_steps} steps
+                      [{task.id}] {task.iterations > 0 ? `${task.iterations} iterations` : "starting..."}
                     </div>
                   </div>
                   <PixelLoader />
@@ -142,6 +183,7 @@ export default function Dashboard() {
               ))}
             </div>
           </motion.section>
+
           {/* Execution Log */}
           <motion.section variants={fadeUp} custom={0.35} initial="hidden" animate="visible">
             <div className="font-mono text-[11px] uppercase tracking-[0.05em] mb-8 pb-2 border-b border-text inline-block">
@@ -150,9 +192,9 @@ export default function Dashboard() {
             <div className="flex flex-col">
               <div className="grid grid-cols-[20px_1fr_auto_auto] gap-5 items-center h-9 border-b border-text font-mono text-[11px] uppercase tracking-[0.05em] text-text-muted">
                 <div />
-                <div>Repository</div>
+                <div>Task</div>
                 <div className="text-right">Duration</div>
-                <div className="text-right opacity-50">Commit</div>
+                <div className="text-right opacity-50">ID</div>
               </div>
               {completedTasks.length === 0 && (
                 <div className="py-10 text-center text-text-muted text-sm">
@@ -173,9 +215,12 @@ export default function Dashboard() {
                       task.status === "completed" ? "bg-text" : "border-2 border-c-red bg-transparent"
                     }`} />
                   </div>
-                  <div className="font-medium truncate">{task.repo}</div>
-                  <div className="text-right text-text-muted">{timeSince(task.created_at)}</div>
-                  <div className="text-right text-text-muted opacity-50">#{task.id.split("-")[1] || task.id.slice(-7)}</div>
+                  <div className="font-medium truncate" title={task.prompt}>
+                    {task.repo ? `${task.repo.split("/").pop()} — ` : ""}
+                    {task.prompt.length > 40 ? task.prompt.slice(0, 40) + "..." : task.prompt}
+                  </div>
+                  <div className="text-right text-text-muted">{formatDuration(task.created_at, task.completed_at)}</div>
+                  <div className="text-right text-text-muted opacity-50">#{task.id.split("-")[1] || task.id.slice(-4)}</div>
                 </motion.button>
               ))}
             </div>
@@ -186,6 +231,16 @@ export default function Dashboard() {
   )
 }
 
+function formatDuration(start: string, end: string | null): string {
+  if (!end) return timeSince(start)
+  const ms = new Date(end).getTime() - new Date(start).getTime()
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ${s % 60}s`
+  return `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
 function timeSince(isoDate: string): string {
   const diff = Date.now() - new Date(isoDate).getTime()
   const s = Math.floor(diff / 1000)
@@ -194,4 +249,10 @@ function timeSince(isoDate: string): string {
   if (m < 60) return `${m}m ago`
   const h = Math.floor(m / 60)
   return `${h}h ago`
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`
+  return String(n)
 }

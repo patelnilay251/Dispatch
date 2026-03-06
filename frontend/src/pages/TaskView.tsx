@@ -111,14 +111,14 @@ function CodeBlock({ path, content, error }: { path: string; content: string; er
           </button>
         )}
       </div>
-      <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
+      <div className="max-h-[420px] overflow-y-auto overflow-x-hidden">
         <Highlight theme={themes.github} code={display} language={lang}>
           {({ tokens, getLineProps, getTokenProps }) => (
-            <pre className="px-4 pb-4 font-mono text-[12px] leading-[1.7] m-0 bg-transparent">
+            <pre className="px-4 pb-4 font-mono text-[12px] leading-[1.7] m-0 bg-transparent whitespace-pre-wrap break-all overflow-wrap-anywhere">
               {tokens.map((line, i) => (
                 <div key={i} {...getLineProps({ line })} className="flex">
                   <span className="w-8 shrink-0 text-right pr-3 text-[#C0B8A8] select-none text-[11px]">{i + 1}</span>
-                  <span>
+                  <span className="min-w-0">
                     {line.map((token, k) => <span key={k} {...getTokenProps({ token })} />)}
                   </span>
                 </div>
@@ -257,18 +257,18 @@ function TerminalPanel({ command, output, error }: { command: string; output: st
           </button>
         )}
       </div>
-      <div className="p-4 font-mono text-[13px] leading-[1.6] overflow-x-auto max-h-[400px] overflow-y-auto">
+      <div className="p-4 font-mono text-[13px] leading-[1.6] max-h-[400px] overflow-y-auto overflow-x-hidden">
         {hasDiff ? lines.filter(l => l.length > 0).map((line, i) => (
           <div key={i} className={`flex gap-4 ${
             line.startsWith("+") ? "text-[#4ADE80] bg-[rgba(74,222,128,0.1)]" :
             line.startsWith("-") ? "text-[#F87171] bg-[rgba(248,113,113,0.1)]" :
             "text-[#666]"
           }`}>
-            <span>{line.startsWith("+") ? "+" : line.startsWith("-") ? "-" : " "}</span>
-            <span>{(line.startsWith("+") || line.startsWith("-") ? line.slice(1) : line) || "\u00A0"}</span>
+            <span className="shrink-0">{line.startsWith("+") ? "+" : line.startsWith("-") ? "-" : " "}</span>
+            <span className="break-all">{(line.startsWith("+") || line.startsWith("-") ? line.slice(1) : line) || "\u00A0"}</span>
           </div>
         )) : (
-          <pre className={`whitespace-pre-wrap break-words ${error ? "text-[#F87171]" : "text-[#CCC]"}`}>{display || "(no output)"}</pre>
+          <pre className={`whitespace-pre-wrap break-all ${error ? "text-[#F87171]" : "text-[#CCC]"}`}>{display || "(no output)"}</pre>
         )}
       </div>
       <div className="px-4 py-3 bg-black border-t border-[#333] font-mono text-xs">
@@ -487,7 +487,7 @@ export default function TaskView() {
         </motion.aside>
 
         {/* Main */}
-        <main className="flex flex-col gap-6 h-[calc(100vh-80px)]">
+        <main className="flex flex-col gap-6 h-[calc(100vh-80px)] min-w-0">
           {/* Header — metrics grid style */}
           <motion.div className="bg-white border border-[#E8D5B5] rounded-lg overflow-hidden shrink-0" variants={fadeUp} custom={0.15} initial="hidden" animate="visible">
             <div className="px-6 py-4 flex justify-between items-center">
@@ -526,7 +526,7 @@ export default function TaskView() {
               <span className="font-mono text-[11px] text-text-muted">{events.filter(e => e.type === "tool_call").length} tool calls</span>
             </div>
 
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-5">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden p-5 space-y-5 min-w-0">
               <AnimatePresence>
                 {events.map((event) => {
                   if (event.type === "tool_call") {
