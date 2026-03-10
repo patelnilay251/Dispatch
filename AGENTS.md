@@ -30,3 +30,6 @@ cd frontend && bun run dev
 - Frontend needs `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `frontend/.env` for auth to work.
 - Backend pyright config expects a `.venv` in the `backend/` directory.
 - Vite dev server proxies `/api` to `http://localhost:8000` — start the backend first.
+- **GitHub OAuth flow** requires a Supabase project with GitHub OAuth provider configured. The "Continue with GitHub" button redirects to `github.com/login` via Supabase. A GitHub test account is needed for end-to-end authenticated testing (task creation, dashboard, etc.).
+- The backend `.env` values are read at import time via `python-dotenv`; after editing `.env`, you must restart uvicorn (the `--reload` flag only watches `.py` file changes).
+- The update script writes `.env` files from environment variables using `cp -n` (no-clobber), so existing `.env` files are preserved across restarts.
